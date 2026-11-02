@@ -6,7 +6,11 @@
     "start": "ng serve",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
-    "test": "ng test"
+    "test": "ng test --watch=false",
+    "test:watch": "ng test",
+    "e2e": "playwright test",
+    "preview": "node scripts/serve-dist.mjs 4310",
+    "verify": "npm run test && npm run build && npm run e2e && openspec validate --all --strict"
   },
   "private": true,
   "packageManager": "npm@11.19.0",

@@ -3,21 +3,21 @@ import { App } from './app';
 
 describe('App', () => {
   beforeEach(async () => {
-    await TestBed.configureTestingModule({
-      imports: [App],
-    }).compileComponents();
+    await TestBed.configureTestingModule({ imports: [App] }).compileComponents();
   });
 
-  it('should create the app', () => {
-    const fixture = TestBed.createComponent(App);
-    const app = fixture.componentInstance;
-    expect(app).toBeTruthy();
-  });
-
-  it('should render title', async () => {
+  it('always shows the synthetic-data label', async () => {
     const fixture = TestBed.createComponent(App);
     await fixture.whenStable();
-    const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector('h1')?.textContent).toContain('Hello, blast-movement-explorer');
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('[data-testid="synthetic-label"]')?.textContent?.trim()).toBe('Synthetic data · Illustrative movement');
+  });
+
+  it('shows the WebGL-unavailable state when no context can be created (jsdom has no WebGL)', async () => {
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('[data-testid="webgl-unavailable"]')?.textContent).toContain('WebGL is not available');
   });
 });
