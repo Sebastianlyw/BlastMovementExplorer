@@ -25,7 +25,7 @@ Default scene: seed 20261103, generator 1.0.0, 60 × 40 × 12 = 28,800 blocks.
 
 **Decision:** block generation stays on the main thread. At ~25 ms it is shorter
 than two frames and only runs on scene load. A Worker is reserved for work
-measured to block the main thread (see the point-cloud section once added).
+measured to block the main thread (see the point-cloud section).
 
 ## Dig analysis and filtering (main thread)
 
@@ -38,6 +38,23 @@ Node 24, default dataset, 200 runs after 20 warm-up runs (2026-11-03):
 
 **Decision:** analysis and filtering stay on the main thread; a Worker would cost more
 in message passing than the computation itself.
+
+## Surface point cloud generation
+
+Node 24, `generateSurfacePoints`, median of 5 runs after one warm-up (2026-11-03):
+
+| Tier | Points (after dropout) | Time | Position buffer |
+|---|---|---|---|
+| ~100k | 95,738 | 15 ms | 1.1 MB |
+| ~300k | 287,529 | 42 ms | 3.5 MB |
+| ~1M | 958,564 | 132 ms | 11.5 MB |
+
+In the browser the same work runs in a module Web Worker (the UI shows the worker time;
+14–16 ms for 100k in headless Chromium). The buffer is transferred, not copied.
+
+**Decision:** 132 ms would block about eight 60 Hz frames, so point generation runs in a
+Worker. The renderer keeps one CPU copy (needed to re-upload after a WebGL context
+loss) and one GPU copy; colour is computed in the shader, so there is no colour buffer.
 
 ## Bundle size
 

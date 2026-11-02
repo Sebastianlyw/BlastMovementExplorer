@@ -2,7 +2,8 @@ import { afterNextRender, Component, computed, DestroyRef, effect, ElementRef, i
 import { DISPLACEMENT_SCALE, GRADE_SCALE, scaleGradientCss } from '../renderer/colormap';
 import { CameraPreset, RenderStats, SceneRenderer, ViewIndicator, WebGLUnavailableError } from '../renderer/scene-renderer';
 import { buildVisibilityMask, countVisible, isFilterActive, NO_GRADE_FILTER } from '../domain/filtering';
-import { ExplorerStore } from '../state/explorer-store';
+import { ExplorerStore, PointDensity } from '../state/explorer-store';
+import { createPointCloudWorker, PointCloudClient } from '../workers/point-cloud-client';
 import { Quality, QUALITY_SETTINGS } from '../state/quality';
 import { installDebugHook } from './debug-hook';
 
@@ -50,6 +51,9 @@ const NICE_LENGTHS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500];
       </div>
     </div>
 
+    @if (store.layers().pointCloud && store.pointCloudStatus().state === 'ready') {
+      <div class="overlay overlay--scan" data-testid="scan-label">Points: Synthetic surface scan (pre-blast) · not LiDAR</div>
+    }
     @if (store.status() === 'loading') {
       <div class="overlay overlay--status" role="status"><div class="status-card">Generating synthetic scene…</div></div>
     }
@@ -111,6 +115,8 @@ export class Viewport {
   /** Increments each time a renderer is created; 0 = none. Effects re-apply state on change. */
   private readonly rendererGen = signal(0);
   private readonly viewReady = signal(false);
+  private pointClient: PointCloudClient | null = null;
+  private loadedPointKey = '';
 
   constructor() {
     afterNextRender(() => this.viewReady.set(true));
@@ -208,6 +214,29 @@ export class Viewport {
       });
     });
 
+    effect(() => {
+      const style = { size: this.store.pointSize(), colorMode: this.store.pointColorMode() };
+      if (this.rendererGen()) this.renderer?.setPointStyle(style);
+    });
+
+    // Surface point cloud: generated in a Worker only while the layer is visible.
+    effect(() => {
+      const visible = this.store.layers().pointCloud;
+      const tier = this.store.pointDensity();
+      const version = this.store.datasetVersion();
+      const gen = this.rendererGen();
+      if (!gen || version === 0) return;
+      const key = `${version}|${tier}|${gen}`;
+      untracked(() => {
+        if (!visible) {
+          this.pointClient?.cancel();
+          if (this.store.pointCloudStatus().state === 'generating') this.store.pointCloudStatus.set({ state: 'idle' });
+          return;
+        }
+        if (key !== this.loadedPointKey) void this.requestPoints(key, tier);
+      });
+    });
+
     // A selection that is no longer drawn is cleared, with a notice. Runs after the effects above.
     effect(() => {
       const id = this.store.selectedBlockId();
@@ -225,7 +254,11 @@ export class Viewport {
       }
     });
 
-    inject(DestroyRef).onDestroy(() => this.destroyRenderer());
+    inject(DestroyRef).onDestroy(() => {
+      this.pointClient?.dispose();
+      this.pointClient = null;
+      this.destroyRenderer();
+    });
   }
 
   private createRenderer(quality: Quality): void {
@@ -255,7 +288,32 @@ export class Viewport {
     }
   }
 
+  private async requestPoints(key: string, tier: PointDensity): Promise<void> {
+    const ds = this.store.currentDataset();
+    if (!ds) return;
+    if (!this.pointClient) {
+      const worker = createPointCloudWorker();
+      if (!worker) {
+        this.store.pointCloudStatus.set({ state: 'error', message: 'Web Workers are not available in this browser.' });
+        return;
+      }
+      this.pointClient = new PointCloudClient(worker);
+    }
+    this.store.pointCloudStatus.set({ state: 'generating', tier });
+    try {
+      const res = await this.pointClient.request(ds.metadata.seed, ds.metadata.params, tier);
+      if (!res || !this.renderer) return; // superseded or torn down
+      // Ownership of res.positions passes to the renderer here.
+      this.renderer.setPointCloud(res.positions, [res.bounds.min[2], res.bounds.max[2]]);
+      this.loadedPointKey = key;
+      this.store.pointCloudStatus.set({ state: 'ready', tier: res.tier, count: res.count, workerMs: res.ms });
+    } catch (e) {
+      this.store.pointCloudStatus.set({ state: 'error', message: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
   private destroyRenderer(): void {
+    this.loadedPointKey = '';
     this.removeHook?.();
     this.removeHook = null;
     this.renderer?.dispose();

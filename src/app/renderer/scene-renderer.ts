@@ -4,6 +4,7 @@ import { buildIdIndex } from '../domain/blocks';
 import { BlockModel, Bounds3, Vec3 } from '../domain/types';
 import { BlockColorMode, BlockLayer } from './block-layer';
 import { DigRegionDisplay, DigRegionLayer } from './dig-region-layer';
+import { PointCloudLayer, PointStyle } from './point-cloud-layer';
 import { Ray } from './picking';
 import { TerrainLayer } from './terrain-layer';
 import { WorldFrame } from './world-frame';
@@ -18,6 +19,8 @@ export interface RenderStats {
   readonly geometries: number;
   readonly textures: number;
   readonly instances: number;
+  /** Surface points loaded (drawn only when the layer is visible). */
+  readonly pointCloudPoints: number;
   readonly pixelRatio: number;
   readonly canvasSize: readonly [number, number];
   /** Median browser frame interval over recent continuous frames, ms (null when idle). */
@@ -58,6 +61,7 @@ export interface SceneInput {
 export interface LayerVisibility {
   readonly blocks: boolean;
   readonly terrain: boolean;
+  readonly pointCloud: boolean;
 }
 
 export interface RendererOptions {
@@ -111,8 +115,10 @@ export class SceneRenderer {
   private terrain: TerrainLayer | null = null;
   private digRegions: DigRegionLayer | null = null;
   private digRegionDisplay: DigRegionDisplay | null = null;
+  private pointCloud: PointCloudLayer | null = null;
+  private pointStyle: PointStyle = { size: 2, colorMode: 'height' };
   private selectedBlockId: number | null = null;
-  private layers: LayerVisibility = { blocks: true, terrain: true };
+  private layers: LayerVisibility = { blocks: true, terrain: true, pointCloud: false };
   private colorMode: BlockColorMode = 'grade';
   private visibleMask: Uint8Array | null = null;
   private sectionZ: number | null = null;
@@ -211,6 +217,10 @@ export class SceneRenderer {
     this.terrain = new TerrainLayer(this.frame, input.terrainExtent, input.blockBounds, input.heightAt, input.floorZ);
     this.scene.add(this.terrain.mesh);
 
+    // A point cloud belongs to the previous dataset.
+    this.removeLayer(this.pointCloud);
+    this.pointCloud = null;
+
     this.removeLayer(this.digRegions);
     this.digRegions = new DigRegionLayer(this.frame);
     if (this.digRegionDisplay) this.digRegions.set(this.digRegionDisplay);
@@ -226,6 +236,32 @@ export class SceneRenderer {
     this.selectedBlockId = blockId;
     this.updateSelectionBox();
     this.invalidate();
+  }
+
+  /**
+   * Show a surface point cloud (domain coordinates). Ownership of `positions` passes to
+   * the renderer, which converts it in place. null removes the cloud. Call after setScene.
+   */
+  setPointCloud(positions: Float32Array | null, zRange: readonly [number, number] = [0, 1]): void {
+    this.removeLayer(this.pointCloud);
+    this.pointCloud = null;
+    if (positions && this.input) {
+      this.pointCloud = new PointCloudLayer(this.frame, positions, zRange, this.renderer.getPixelRatio(), this.pointStyle);
+      this.scene.add(this.pointCloud.mesh);
+    }
+    this.applyLayers();
+    this.invalidate();
+  }
+
+  setPointStyle(style: PointStyle): void {
+    this.pointStyle = style;
+    this.pointCloud?.setStyle(style);
+    this.invalidate();
+  }
+
+  /** Number of surface points currently loaded (0 when none). */
+  get pointCount(): number {
+    return this.pointCloud?.count ?? 0;
   }
 
   /** Dig region outlines in domain coordinates. Call after setScene. */
@@ -399,6 +435,8 @@ export class SceneRenderer {
     this.terrain?.dispose();
     this.digRegions?.dispose();
     this.digRegions = null;
+    this.pointCloud?.dispose();
+    this.pointCloud = null;
     this.selectionBox.geometry.dispose();
     (this.selectionBox.material as THREE.Material).dispose();
     this.blocks = null;
@@ -465,6 +503,7 @@ export class SceneRenderer {
   private applyLayers(): void {
     if (this.blocks) this.blocks.mesh.visible = this.layers.blocks;
     if (this.terrain) this.terrain.mesh.visible = this.layers.terrain;
+    if (this.pointCloud) this.pointCloud.mesh.visible = this.layers.pointCloud;
     this.updateSelectionBox();
   }
 
@@ -479,6 +518,7 @@ export class SceneRenderer {
     const h = Math.max(1, this.container.clientHeight);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.options.maxPixelRatio));
     this.renderer.setSize(w, h, false);
+    this.pointCloud?.setPixelRatio(this.renderer.getPixelRatio());
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.invalidate();
@@ -530,6 +570,7 @@ export class SceneRenderer {
       geometries: info.memory.geometries,
       textures: info.memory.textures,
       instances: this.blocks?.count ?? 0,
+      pointCloudPoints: this.pointCloud?.count ?? 0,
       pixelRatio: this.renderer.getPixelRatio(),
       canvasSize: [this.canvas.width, this.canvas.height],
       frameIntervalMedianMs: median,

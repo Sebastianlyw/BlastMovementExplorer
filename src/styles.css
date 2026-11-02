@@ -530,3 +530,17 @@ input[type='checkbox'] {
 .metrics td {
   font-size: 11.5px;
 }
+.subcontrols {
+  margin: 4px 0 6px 22px;
+  padding-left: 8px;
+  border-left: 2px solid var(--border);
+}
+.overlay--scan {
+  left: 8px;
+  bottom: 104px;
+  background: rgba(15, 18, 22, 0.86);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px 8px;
+  color: var(--text-muted);
+}

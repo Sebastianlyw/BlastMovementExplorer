@@ -3,11 +3,12 @@ import { Component, inject } from '@angular/core';
 import { ExplorerStore } from '../state/explorer-store';
 import { QUALITY_SETTINGS } from '../state/quality';
 import { DigRegionPanel } from './dig-region-panel';
+import { PointCloudControls } from './point-cloud-controls';
 import { ViewFilters } from './view-filters';
 
 @Component({
   selector: 'app-control-panel',
-  imports: [DecimalPipe, ViewFilters, DigRegionPanel],
+  imports: [DecimalPipe, ViewFilters, DigRegionPanel, PointCloudControls],
   template: `
     <section class="section" aria-labelledby="scene-title">
       <h2 class="section__title" id="scene-title">Scene</h2>
@@ -39,6 +40,7 @@ import { ViewFilters } from './view-filters';
         (change)="store.setLayer('blocks', $any($event.target).checked)" /> Block model</label>
       <label class="check"><input type="checkbox" data-testid="layer-terrain" [checked]="store.layers().terrain"
         (change)="store.setLayer('terrain', $any($event.target).checked)" /> Terrain surface (pre-blast)</label>
+      <app-point-cloud-controls />
     </section>
 
     <section class="section" aria-labelledby="color-title">

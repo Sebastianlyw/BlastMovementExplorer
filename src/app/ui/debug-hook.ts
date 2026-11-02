@@ -15,6 +15,7 @@ export interface DebugHook {
   camera(): ReturnType<SceneRenderer['cameraState']>;
   terrainHeight(x: number, y: number): number | null;
   lifecycle(): { liveRenderers: number; pendingFrames: number };
+  pointCount(): number;
 }
 
 declare global {
@@ -49,6 +50,7 @@ export function installDebugHook(store: ExplorerStore, renderer: SceneRenderer):
     camera: () => renderer.cameraState(),
     terrainHeight: (x, y) => store.heightFunction()?.(x, y) ?? null,
     lifecycle: () => ({ liveRenderers: SceneRenderer.liveInstances, pendingFrames: SceneRenderer.pendingFrames }),
+    pointCount: () => renderer.pointCount,
   };
   window.__bmx = hook;
   return () => {

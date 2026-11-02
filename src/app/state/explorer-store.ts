@@ -20,6 +20,12 @@ export interface LayerState {
   readonly pointCloud: boolean;
 }
 
+export type PointCloudStatus =
+  | { readonly state: 'idle' }
+  | { readonly state: 'generating'; readonly tier: PointDensity }
+  | { readonly state: 'ready'; readonly tier: PointDensity; readonly count: number; readonly workerMs: number }
+  | { readonly state: 'error'; readonly message: string };
+
 export interface SectionState {
   readonly enabled: boolean;
   /** Elevation, metres (domain Z). */
@@ -57,6 +63,9 @@ export class ExplorerStore {
   readonly section = signal<SectionState>(DEFAULT_SECTION);
   readonly pointDensity = signal<PointDensity>('100k');
   readonly pointSize = signal(2);
+  readonly pointColorMode = signal<'height' | 'natural'>('height');
+  /** Status of the surface point cloud (summary only; positions never enter signals). */
+  readonly pointCloudStatus = signal<PointCloudStatus>({ state: 'idle' });
 
   /** Frozen per dataset: derived from pre-movement ore at the default cutoff. */
   readonly originalRegion = signal<DigRegion | null>(null);
@@ -136,6 +145,7 @@ export class ExplorerStore {
     this.section.set(DEFAULT_SECTION);
     this.pointDensity.set('100k');
     this.pointSize.set(2);
+    this.pointColorMode.set('height');
     await this.loadPreset(this.presetId());
   }
 
