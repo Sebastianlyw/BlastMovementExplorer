@@ -1,6 +1,7 @@
 import { DecimalPipe } from '@angular/common';
 import { Component, inject } from '@angular/core';
 import { ExplorerStore } from '../state/explorer-store';
+import { QUALITY_SETTINGS } from '../state/quality';
 
 @Component({
   selector: 'app-control-panel',
@@ -30,6 +31,37 @@ import { ExplorerStore } from '../state/explorer-store';
       }
     </section>
 
+    <section class="section" aria-labelledby="layers-title">
+      <h2 class="section__title" id="layers-title">Layers</h2>
+      <label class="check"><input type="checkbox" data-testid="layer-blocks" [checked]="store.layers().blocks"
+        (change)="store.setLayer('blocks', $any($event.target).checked)" /> Block model</label>
+      <label class="check"><input type="checkbox" data-testid="layer-terrain" [checked]="store.layers().terrain"
+        (change)="store.setLayer('terrain', $any($event.target).checked)" /> Terrain surface (pre-blast)</label>
+    </section>
+
+    <section class="section" aria-labelledby="color-title">
+      <h2 class="section__title" id="color-title">Colour blocks by</h2>
+      <div class="radio-row" role="radiogroup" aria-labelledby="color-title">
+        <label class="check"><input type="radio" name="color-mode" value="grade" data-testid="color-grade"
+          [checked]="store.colorMode() === 'grade'" (change)="store.colorMode.set('grade')" /> Grade (g/t)</label>
+        <label class="check"><input type="radio" name="color-mode" value="displacement" data-testid="color-displacement"
+          [checked]="store.colorMode() === 'displacement'" (change)="store.colorMode.set('displacement')" /> Displacement magnitude (m)</label>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="render-title">
+      <h2 class="section__title" id="render-title">Rendering</h2>
+      <div class="field">
+        <label for="quality">Quality</label>
+        <select id="quality" data-testid="quality-select" [value]="store.quality()" (change)="store.quality.set($any($event.target).value)">
+          @for (q of qualities; track q[0]) {
+            <option [value]="q[0]">{{ q[1].label }}</option>
+          }
+        </select>
+      </div>
+      <p class="section__note">Changing quality recreates the WebGL context.</p>
+    </section>
+
     <section class="section" aria-labelledby="cutoff-title">
       <h2 class="section__title" id="cutoff-title">Cutoff</h2>
       <div class="field">
@@ -43,6 +75,7 @@ import { ExplorerStore } from '../state/explorer-store';
 })
 export class ControlPanel {
   protected readonly store = inject(ExplorerStore);
+  protected readonly qualities = Object.entries(QUALITY_SETTINGS);
 
   protected onCutoff(e: Event): void {
     const input = e.target as HTMLInputElement;

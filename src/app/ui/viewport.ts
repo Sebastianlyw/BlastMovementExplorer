@@ -1,7 +1,8 @@
-import { afterNextRender, Component, DestroyRef, effect, ElementRef, inject, signal, viewChild } from '@angular/core';
-import { GRADE_SCALE, scaleGradientCss } from '../renderer/colormap';
+import { afterNextRender, Component, computed, DestroyRef, effect, ElementRef, inject, signal, untracked, viewChild } from '@angular/core';
+import { DISPLACEMENT_SCALE, GRADE_SCALE, scaleGradientCss } from '../renderer/colormap';
 import { CameraPreset, RenderStats, SceneRenderer, ViewIndicator, WebGLUnavailableError } from '../renderer/scene-renderer';
 import { ExplorerStore } from '../state/explorer-store';
+import { Quality, QUALITY_SETTINGS } from '../state/quality';
 import { installDebugHook } from './debug-hook';
 
 type WebGLState = 'pending' | 'ok' | 'unavailable' | 'lost';
@@ -22,14 +23,14 @@ const NICE_LENGTHS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500];
     </div>
 
     <div class="overlay overlay--legend" aria-label="Colour legend">
-      <div>{{ scale.label }} ({{ scale.unit }})</div>
-      <div class="legend__bar" [style.background]="gradient"></div>
+      <div>{{ scale().label }} ({{ scale().unit }})</div>
+      <div class="legend__bar" [style.background]="gradient()"></div>
       <div class="legend__ticks">
-        <span>{{ scale.min.toFixed(1) }}</span>
-        <span>{{ ((scale.min + scale.max) / 2).toFixed(1) }}</span>
-        <span>≥ {{ scale.max.toFixed(1) }}</span>
+        <span>{{ scale().min.toFixed(1) }}</span>
+        <span>{{ ((scale().min + scale().max) / 2).toFixed(1) }}</span>
+        <span>≥ {{ scale().max.toFixed(1) }}</span>
       </div>
-      <div class="section__note">Fixed scale · cutoff {{ store.cutoff() }} g/t</div>
+      <div class="section__note">Fixed scale{{ store.colorMode() === 'grade' ? " · cutoff " + store.cutoff() + " g/t" : "" }}</div>
     </div>
 
     <div class="overlay overlay--gizmo" aria-label="Orientation and scale">
@@ -77,8 +78,8 @@ const NICE_LENGTHS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500];
 })
 export class Viewport {
   protected readonly store = inject(ExplorerStore);
-  protected readonly scale = GRADE_SCALE;
-  protected readonly gradient = scaleGradientCss(GRADE_SCALE);
+  protected readonly scale = computed(() => (this.store.colorMode() === 'grade' ? GRADE_SCALE : DISPLACEMENT_SCALE));
+  protected readonly gradient = computed(() => scaleGradientCss(this.scale()));
   protected readonly webgl = signal<WebGLState>('pending');
   readonly stats = signal<RenderStats | null>(null);
 
@@ -93,55 +94,108 @@ export class Viewport {
   private readonly scaleLabel = viewChild.required<ElementRef<HTMLElement>>('scaleLabel');
 
   private renderer: SceneRenderer | null = null;
-  private readonly rendererReady = signal(false);
+  private removeHook: (() => void) | null = null;
+  /** Increments each time a renderer is created; 0 = none. Effects re-apply state on change. */
+  private readonly rendererGen = signal(0);
+  private readonly viewReady = signal(false);
 
   constructor() {
-    const destroyRef = inject(DestroyRef);
+    afterNextRender(() => this.viewReady.set(true));
 
-    afterNextRender(() => {
-      try {
-        this.renderer = SceneRenderer.create(this.canvasHost().nativeElement, {
-          onStats: (s) => this.stats.set(s),
-          onView: (v) => this.updateIndicators(v),
-          onClickPick: (id) => this.store.select(id),
-          onContextLost: () => this.webgl.set('lost'),
-          onContextRestored: () => this.webgl.set('ok'),
-        });
-        this.webgl.set('ok');
-        this.rendererReady.set(true);
-        const removeHook = installDebugHook(this.store, this.renderer);
-        destroyRef.onDestroy(removeHook);
-      } catch (e) {
-        if (e instanceof WebGLUnavailableError) this.webgl.set('unavailable');
-        else throw e;
-      }
+    // (Re)create the renderer when the view is ready and whenever quality changes:
+    // antialiasing is fixed per WebGL context.
+    effect(() => {
+      const quality = this.store.quality();
+      if (!this.viewReady()) return;
+      untracked(() => this.createRenderer(quality));
     });
 
-    // New dataset → rebuild scene objects.
+    // New dataset (or new renderer) → rebuild scene objects.
     effect(() => {
       const version = this.store.datasetVersion();
-      if (!this.rendererReady() || version === 0) return;
+      if (!this.rendererGen() || version === 0) return;
       const dataset = this.store.currentDataset();
       const heightAt = this.store.heightFunction();
       if (!dataset || !heightAt || !this.renderer) return;
       this.renderer.setScene({
         blocks: dataset.blocks,
         blockBounds: dataset.metadata.blockBounds,
+        finalBounds: dataset.metadata.finalBounds,
         terrainExtent: dataset.metadata.params.terrain.extent,
+        floorZ: dataset.metadata.params.terrain.floorZ,
         heightAt,
+      });
+      untracked(() => {
+        this.renderer?.setMovementT(this.store.movementT());
+        this.renderer?.setSelection(this.store.selectedBlockId());
       });
     });
 
     effect(() => {
       const id = this.store.selectedBlockId();
-      this.store.datasetVersion();
-      if (this.rendererReady()) this.renderer?.setSelection(id);
+      if (this.rendererGen()) this.renderer?.setSelection(id);
     });
 
-    destroyRef.onDestroy(() => {
-      this.renderer?.dispose();
-      this.renderer = null;
+    // t flows store → renderer except during playback, when the renderer owns it.
+    effect(() => {
+      const t = this.store.movementT();
+      const playing = this.store.playing();
+      if (!this.rendererGen() || playing) return;
+      this.renderer?.setMovementT(t);
     });
+
+    effect(() => {
+      const playing = this.store.playing();
+      if (!this.rendererGen() || !this.renderer) return;
+      if (playing && !this.renderer.isPlaying) this.renderer.play();
+      else if (!playing && this.renderer.isPlaying) this.renderer.pause();
+    });
+
+    effect(() => {
+      const layers = this.store.layers();
+      if (this.rendererGen()) this.renderer?.setLayers(layers);
+    });
+
+    effect(() => {
+      const mode = this.store.colorMode();
+      if (this.rendererGen()) this.renderer?.setColorMode(mode);
+    });
+
+    inject(DestroyRef).onDestroy(() => this.destroyRenderer());
+  }
+
+  private createRenderer(quality: Quality): void {
+    this.destroyRenderer();
+    this.store.playing.set(false);
+    const q = QUALITY_SETTINGS[quality];
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+    try {
+      this.renderer = SceneRenderer.create(
+        this.canvasHost().nativeElement,
+        {
+          onStats: (s) => this.stats.set(s),
+          onView: (v) => this.updateIndicators(v),
+          onClickPick: (id) => this.store.select(id),
+          onMovementT: (t, playing) => this.store.reportPlayback(t, playing),
+          onContextLost: () => this.webgl.set('lost'),
+          onContextRestored: () => this.webgl.set('ok'),
+        },
+        { antialias: q.antialias, maxPixelRatio: q.maxPixelRatio, damping: !reducedMotion },
+      );
+      this.webgl.set('ok');
+      this.removeHook = installDebugHook(this.store, this.renderer);
+      this.rendererGen.update((g) => g + 1);
+    } catch (e) {
+      if (e instanceof WebGLUnavailableError) this.webgl.set('unavailable');
+      else throw e;
+    }
+  }
+
+  private destroyRenderer(): void {
+    this.removeHook?.();
+    this.removeHook = null;
+    this.renderer?.dispose();
+    this.renderer = null;
   }
 
   protected camera(preset: CameraPreset): void {

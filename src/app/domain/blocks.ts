@@ -17,10 +17,16 @@ export function isOre(gradeGramsPerTonne: number, cutoffGramsPerTonne: number): 
 
 export function getBlock(model: BlockModel, index: number): Block {
   const o = index * 3;
+  const dx = model.after[o] - model.before[o];
+  const dy = model.after[o + 1] - model.before[o + 1];
+  const dz = model.after[o + 2] - model.before[o + 2];
   return {
     id: model.ids[index],
     gridIndex: [model.gridIndex[o], model.gridIndex[o + 1], model.gridIndex[o + 2]],
     centerBefore: [model.before[o], model.before[o + 1], model.before[o + 2]],
+    centerAfter: [model.after[o], model.after[o + 1], model.after[o + 2]],
+    displacement: [dx, dy, dz],
+    displacementMagnitude: Math.hypot(dx, dy, dz),
     size: [model.size[o], model.size[o + 1], model.size[o + 2]],
     densityTonnesPerM3: model.density[index],
     gradeGramsPerTonne: model.grade[index],

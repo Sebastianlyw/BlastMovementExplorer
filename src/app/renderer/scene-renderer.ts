@@ -2,11 +2,13 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { buildIdIndex } from '../domain/blocks';
 import { BlockModel, Bounds3, Vec3 } from '../domain/types';
-import { GRADE_SCALE, sampleScale } from './colormap';
-import { pickNearest, Ray } from './picking';
+import { BlockColorMode, BlockLayer } from './block-layer';
+import { Ray } from './picking';
+import { TerrainLayer } from './terrain-layer';
 import { WorldFrame } from './world-frame';
 
 export type CameraPreset = 'reset' | 'fit' | 'top' | 'front' | 'iso';
+export type { BlockColorMode } from './block-layer';
 
 export interface RenderStats {
   readonly drawCalls: number;
@@ -36,6 +38,8 @@ export interface RendererCallbacks {
   onView?(view: ViewIndicator): void;
   /** Click (not drag) in the viewport, resolved against what is currently visible. */
   onClickPick?(blockId: number | null): void;
+  /** Movement t during playback (≤ 10 Hz) and exactly once when playback stops. */
+  onMovementT?(t: number, playing: boolean): void;
   onContextLost?(): void;
   onContextRestored?(): void;
 }
@@ -43,9 +47,28 @@ export interface RendererCallbacks {
 export interface SceneInput {
   readonly blocks: BlockModel;
   readonly blockBounds: Bounds3;
+  readonly finalBounds: Bounds3;
   readonly terrainExtent: Bounds3;
   readonly heightAt: (x: number, y: number) => number;
+  /** Elevation of the lower bench floor, metres. */
+  readonly floorZ: number;
 }
+
+export interface LayerVisibility {
+  readonly blocks: boolean;
+  readonly terrain: boolean;
+}
+
+export interface RendererOptions {
+  /** MSAA. Fixed for the lifetime of a WebGL context. */
+  readonly antialias: boolean;
+  /** Upper bound for devicePixelRatio. */
+  readonly maxPixelRatio: number;
+  /** Camera inertia. Disabled when the user prefers reduced motion. */
+  readonly damping: boolean;
+}
+
+export const DEFAULT_RENDERER_OPTIONS: RendererOptions = { antialias: true, maxPixelRatio: 2, damping: true };
 
 export class WebGLUnavailableError extends Error {
   constructor(cause?: unknown) {
@@ -55,21 +78,8 @@ export class WebGLUnavailableError extends Error {
   }
 }
 
-/** Visual gap between blocks. Tonnes always use true dimensions. */
-const BLOCK_VISUAL_SCALE = 0.94;
-
-const BLOCK_VERTEX_PARS = /* glsl */ `
-attribute vec3 aBefore;
-attribute vec3 aAfter;
-attribute vec3 aSize;
-uniform float uT;
-uniform float uVisualScale;
-`;
-
-const BLOCK_BEGIN_VERTEX = /* glsl */ `
-vec3 blockCenter = aBefore * (1.0 - uT) + aAfter * uT;
-vec3 transformed = position * aSize * uVisualScale + blockCenter;
-`;
+/** Duration of a full 0 → 1 playback, ms. */
+const PLAYBACK_MS = 4000;
 
 /**
  * Owns every Three.js object of the viewport. Angular never touches Three.js
@@ -87,40 +97,38 @@ export class SceneRenderer {
   private readonly controls: OrbitControls;
   private readonly resizeObserver: ResizeObserver;
   private readonly canvas: HTMLCanvasElement;
-  private readonly uniforms = { uT: { value: 0 }, uVisualScale: { value: BLOCK_VISUAL_SCALE } };
+  private readonly selectionBox: THREE.LineSegments;
 
   private frameHandle = 0;
   private disposed = false;
   private contextLost = false;
-  private maxPixelRatio = 2;
 
   private frame: WorldFrame = new WorldFrame([0, 0, 0]);
   private input: SceneInput | null = null;
   private idIndex = new Map<number, number>();
-  private blockMesh: THREE.InstancedMesh | null = null;
-  private terrainMesh: THREE.Mesh | null = null;
-  private selectionBox: THREE.LineSegments;
+  private blocks: BlockLayer | null = null;
+  private terrain: TerrainLayer | null = null;
   private selectedBlockId: number | null = null;
-
-  /** Render-space buffers for the visible (compacted) instances. */
-  private visBefore: Float32Array = new Float32Array(0);
-  private visAfter: Float32Array = new Float32Array(0);
-  private visHalf: Float32Array = new Float32Array(0);
-  private instanceToBlock: Int32Array = new Int32Array(0);
-  private visibleCount = 0;
+  private layers: LayerVisibility = { blocks: true, terrain: true };
+  private colorMode: BlockColorMode = 'grade';
+  private visibleMask: Uint8Array | null = null;
+  private sectionZ: number | null = null;
+  private movementT = 0;
+  private playback: { startTime: number; fromT: number; lastReport: number } | null = null;
 
   private pointerDown: { x: number; y: number; time: number } | null = null;
   private lastFrameTime = 0;
   private readonly intervals: number[] = [];
   private framesRendered = 0;
-  private statsTimer: ReturnType<typeof setInterval>;
+  private readonly statsTimer: ReturnType<typeof setInterval>;
 
   private constructor(
     private readonly container: HTMLElement,
     private readonly callbacks: RendererCallbacks,
+    private readonly options: RendererOptions,
   ) {
     try {
-      this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+      this.renderer = new THREE.WebGLRenderer({ antialias: options.antialias, powerPreference: 'high-performance' });
     } catch (e) {
       throw new WebGLUnavailableError(e);
     }
@@ -135,13 +143,12 @@ export class SceneRenderer {
     container.appendChild(this.canvas);
 
     this.renderer.setClearColor(0x14181d, 1);
-    this.renderer.localClippingEnabled = false;
 
     this.camera = new THREE.PerspectiveCamera(45, 1, 0.5, 5000);
     this.camera.up.set(0, 0, 1); // Z-up: domain and render frames share axes.
 
     this.controls = new OrbitControls(this.camera, this.canvas);
-    this.controls.enableDamping = true;
+    this.controls.enableDamping = options.damping;
     this.controls.dampingFactor = 0.12;
     this.controls.maxPolarAngle = Math.PI * 0.495; // never orbit below the horizon
     this.controls.minDistance = 4;
@@ -154,9 +161,8 @@ export class SceneRenderer {
     sun.position.set(0.45, -0.75, 1);
     this.scene.add(hemi, sun);
 
-    const boxEdges = new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1));
     this.selectionBox = new THREE.LineSegments(
-      boxEdges,
+      new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1)),
       new THREE.LineBasicMaterial({ color: 0xffffff, depthTest: false, transparent: true }),
     );
     this.selectionBox.renderOrder = 10;
@@ -177,19 +183,34 @@ export class SceneRenderer {
   }
 
   /** Throws WebGLUnavailableError when no WebGL context can be created. */
-  static create(container: HTMLElement, callbacks: RendererCallbacks = {}): SceneRenderer {
-    return new SceneRenderer(container, callbacks);
+  static create(container: HTMLElement, callbacks: RendererCallbacks = {}, options: RendererOptions = DEFAULT_RENDERER_OPTIONS): SceneRenderer {
+    return new SceneRenderer(container, callbacks, options);
   }
 
   // ---------------------------------------------------------------- data
 
+  /** Replace the dataset. Previous scene objects are disposed. */
   setScene(input: SceneInput): void {
+    this.stopPlayback(false);
     this.input = input;
     this.frame = WorldFrame.centeredOn(input.blockBounds);
     this.idIndex = buildIdIndex(input.blocks);
-    this.buildBlocks(input.blocks);
-    this.buildTerrain(input);
-    this.setSelection(null);
+
+    this.removeLayer(this.blocks);
+    this.blocks = new BlockLayer(input.blocks, this.frame);
+    this.blocks.setT(this.movementT);
+    this.blocks.setColorMode(this.colorMode);
+    this.blocks.setVisibleMask(this.visibleMask && this.visibleMask.length === input.blocks.count ? this.visibleMask : null);
+    this.blocks.setSection(this.sectionZ);
+    this.scene.add(this.blocks.mesh);
+
+    this.removeLayer(this.terrain);
+    this.terrain = new TerrainLayer(this.frame, input.terrainExtent, input.blockBounds, input.heightAt, input.floorZ);
+    this.scene.add(this.terrain.mesh);
+
+    this.applyLayers();
+    this.selectedBlockId = null;
+    this.updateSelectionBox();
     this.applyCameraPreset('reset');
   }
 
@@ -199,44 +220,96 @@ export class SceneRenderer {
     this.invalidate();
   }
 
-  setQuality(maxPixelRatio: number): void {
-    this.maxPixelRatio = maxPixelRatio;
-    this.resize();
+  setLayers(layers: LayerVisibility): void {
+    this.layers = layers;
+    this.applyLayers();
+    this.invalidate();
+  }
+
+  setColorMode(mode: BlockColorMode): void {
+    this.colorMode = mode;
+    this.blocks?.setColorMode(mode);
+    this.invalidate();
+  }
+
+  /** Per-block-index visibility (1 = shown). null shows every block. */
+  setVisibleMask(mask: Uint8Array | null): void {
+    this.visibleMask = mask;
+    this.blocks?.setVisibleMask(mask);
+    this.updateSelectionBox();
+    this.invalidate();
+  }
+
+  /** Horizontal section: hide blocks whose current centre is above z (domain metres). */
+  setSection(zDomain: number | null): void {
+    this.sectionZ = zDomain;
+    this.blocks?.setSection(zDomain);
+    this.updateSelectionBox();
+    this.invalidate();
+  }
+
+  // ---------------------------------------------------------------- movement
+
+  /** Set movement interpolation t ∈ [0, 1]. Stops playback. */
+  setMovementT(t: number): void {
+    if (this.playback) this.stopPlayback(false);
+    this.applyT(t);
+  }
+
+  get isPlaying(): boolean {
+    return this.playback !== null;
+  }
+
+  /** Play from the current t to 1 (from 0 if already at 1). User-initiated only. */
+  play(): void {
+    if (this.playback || !this.blocks) return;
+    const from = this.movementT >= 1 ? 0 : this.movementT;
+    this.applyT(from);
+    this.playback = { startTime: performance.now(), fromT: from, lastReport: 0 };
+    this.callbacks.onMovementT?.(from, true);
+    this.invalidate();
+  }
+
+  pause(): void {
+    this.stopPlayback(true);
+  }
+
+  /** Whether a block is drawn right now (filters, section, t). */
+  isBlockDrawn(blockId: number): boolean {
+    const i = this.idIndex.get(blockId);
+    return i !== undefined && !!this.blocks && this.layers.blocks && this.blocks.isDrawn(i);
   }
 
   // ---------------------------------------------------------------- camera
 
   applyCameraPreset(preset: CameraPreset): void {
     if (!this.input) return;
-    const b = this.input.blockBounds;
-    const minR = this.frame.toRender(b.min);
-    const maxR = this.frame.toRender(b.max);
+    const a = this.input.blockBounds;
+    const b = this.input.finalBounds;
+    const minR = this.frame.toRender([Math.min(a.min[0], b.min[0]), Math.min(a.min[1], b.min[1]), Math.min(a.min[2], b.min[2])]);
+    const maxR = this.frame.toRender([Math.max(a.max[0], b.max[0]), Math.max(a.max[1], b.max[1]), Math.max(a.max[2], b.max[2])]);
     const center = new THREE.Vector3((minR[0] + maxR[0]) / 2, (minR[1] + maxR[1]) / 2, (minR[2] + maxR[2]) / 2);
     const radius = new THREE.Vector3(maxR[0] - minR[0], maxR[1] - minR[1], maxR[2] - minR[2]).length() / 2;
 
     let dir: THREE.Vector3;
     switch (preset) {
       case 'top':
-        dir = new THREE.Vector3(0, -0.0001, 1); // tiny -Y offset keeps North up on screen
+        dir = new THREE.Vector3(0, -0.0001, 1); // tiny −Y offset keeps North up on screen
         break;
       case 'front':
         dir = new THREE.Vector3(0, -1, 0.08);
         break;
-      case 'fit': {
+      case 'fit':
         dir = this.camera.position.clone().sub(this.controls.target);
         if (dir.lengthSq() < 1e-6) dir = new THREE.Vector3(0.55, -1, 0.75);
         break;
-      }
-      case 'iso':
-      case 'reset':
       default:
         dir = new THREE.Vector3(0.55, -1, 0.75);
     }
     dir.normalize();
     const vfov = (this.camera.fov * Math.PI) / 180;
     const hfov = 2 * Math.atan(Math.tan(vfov / 2) * this.camera.aspect);
-    const fov = Math.min(vfov, hfov);
-    const distance = (radius / Math.sin(fov / 2)) * 1.02;
+    const distance = (radius / Math.sin(Math.min(vfov, hfov) / 2)) * 1.02;
     const pos = center.clone().addScaledVector(dir, distance);
 
     // Keep the camera above the terrain surface.
@@ -262,9 +335,9 @@ export class SceneRenderer {
 
   // ---------------------------------------------------------------- picking
 
-  /** Pick the nearest visible block under a client-space point. */
+  /** Pick the nearest drawn block under a client-space point. */
   pickAt(clientX: number, clientY: number): number | null {
-    if (!this.input || this.visibleCount === 0) return null;
+    if (!this.blocks || !this.layers.blocks) return null;
     const rect = this.canvas.getBoundingClientRect();
     const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
     const raycaster = new THREE.Raycaster();
@@ -272,21 +345,14 @@ export class SceneRenderer {
     raycaster.setFromCamera(ndc, this.camera);
     const r = raycaster.ray;
     const ray: Ray = { origin: [r.origin.x, r.origin.y, r.origin.z], dir: [r.direction.x, r.direction.y, r.direction.z] };
-    const idx = pickNearest(ray, {
-      count: this.visibleCount,
-      before: this.visBefore,
-      after: this.visAfter,
-      halfSize: this.visHalf,
-      t: this.uniforms.uT.value,
-    });
-    return idx < 0 ? null : this.instanceToBlock[idx];
+    return this.blocks.pick(ray);
   }
 
-  /** Client-space position of a block's current centre, or null if not visible / off-screen. */
+  /** Client-space position of a block's current centre, or null if not drawn / off-screen. */
   projectBlock(blockId: number): { x: number; y: number } | null {
     const i = this.idIndex.get(blockId);
-    if (i === undefined || !this.input) return null;
-    const p = this.currentRenderCenter(i);
+    if (i === undefined || !this.blocks || !this.isBlockDrawn(blockId)) return null;
+    const p = this.blocks.currentCenter(i);
     this.camera.updateMatrixWorld();
     const v = new THREE.Vector3(p[0], p[1], p[2]).project(this.camera);
     if (v.z < -1 || v.z > 1 || Math.abs(v.x) > 1 || Math.abs(v.y) > 1) return null;
@@ -299,6 +365,7 @@ export class SceneRenderer {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.playback = null;
     if (this.frameHandle) {
       cancelAnimationFrame(this.frameHandle);
       this.frameHandle = 0;
@@ -313,7 +380,12 @@ export class SceneRenderer {
     this.canvas.removeEventListener('webglcontextlost', this.onContextLost);
     this.canvas.removeEventListener('webglcontextrestored', this.onContextRestored);
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
-    this.scene.traverse((obj) => disposeObject(obj));
+    this.blocks?.dispose();
+    this.terrain?.dispose();
+    this.selectionBox.geometry.dispose();
+    (this.selectionBox.material as THREE.Material).dispose();
+    this.blocks = null;
+    this.terrain = null;
     this.renderer.renderLists.dispose();
     this.renderer.dispose();
     this.renderer.forceContextLoss();
@@ -335,6 +407,7 @@ export class SceneRenderer {
     SceneRenderer.pendingFrames--;
     if (this.disposed) return;
     const dampingActive = this.controls.update();
+    this.advancePlayback(now);
     this.renderer.render(this.scene, this.camera);
     this.framesRendered++;
     if (this.lastFrameTime > 0 && now - this.lastFrameTime < 250) {
@@ -343,161 +416,66 @@ export class SceneRenderer {
     }
     this.lastFrameTime = now;
     this.emitView();
-    if (dampingActive) this.invalidate();
+    if (dampingActive || this.playback) this.invalidate();
   };
+
+  private advancePlayback(now: number): void {
+    const p = this.playback;
+    if (!p) return;
+    const t = Math.min(1, p.fromT + (now - p.startTime) / PLAYBACK_MS);
+    this.applyT(t, false);
+    if (t >= 1) {
+      this.stopPlayback(true);
+    } else if (now - p.lastReport >= 100) {
+      p.lastReport = now;
+      this.callbacks.onMovementT?.(t, true);
+    }
+  }
+
+  private stopPlayback(report: boolean): void {
+    if (!this.playback) return;
+    this.playback = null;
+    if (report) this.callbacks.onMovementT?.(this.movementT, false);
+  }
+
+  private applyT(t: number, invalidate = true): void {
+    this.movementT = Math.min(1, Math.max(0, t));
+    this.blocks?.setT(this.movementT);
+    this.updateSelectionBox();
+    if (invalidate) this.invalidate();
+  }
+
+  private applyLayers(): void {
+    if (this.blocks) this.blocks.mesh.visible = this.layers.blocks;
+    if (this.terrain) this.terrain.mesh.visible = this.layers.terrain;
+    this.updateSelectionBox();
+  }
+
+  private removeLayer(layer: { mesh: THREE.Object3D; dispose(): void } | null): void {
+    if (!layer) return;
+    this.scene.remove(layer.mesh);
+    layer.dispose();
+  }
 
   private resize(): void {
     const w = Math.max(1, this.container.clientWidth);
     const h = Math.max(1, this.container.clientHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.maxPixelRatio));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.options.maxPixelRatio));
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.invalidate();
   }
 
-  private buildBlocks(model: BlockModel): void {
-    if (this.blockMesh) {
-      this.scene.remove(this.blockMesh);
-      disposeObject(this.blockMesh);
-      this.blockMesh = null;
-    }
-    const n = model.count;
-    const geometry = new THREE.BoxGeometry(1, 1, 1);
-    const before = this.frame.bufferToRender(model.before);
-    const after = before.slice(); // movement arrives in a later change
-    const size = new Float32Array(model.size);
-    const aBefore = new THREE.InstancedBufferAttribute(before, 3);
-    const aAfter = new THREE.InstancedBufferAttribute(after, 3);
-    const aSize = new THREE.InstancedBufferAttribute(size, 3);
-    geometry.setAttribute('aBefore', aBefore);
-    geometry.setAttribute('aAfter', aAfter);
-    geometry.setAttribute('aSize', aSize);
-
-    const material = new THREE.MeshLambertMaterial({ color: 0xffffff });
-    material.onBeforeCompile = (shader) => {
-      shader.uniforms['uT'] = this.uniforms.uT;
-      shader.uniforms['uVisualScale'] = this.uniforms.uVisualScale;
-      shader.vertexShader = shader.vertexShader
-        .replace('#include <common>', `#include <common>\n${BLOCK_VERTEX_PARS}`)
-        .replace('#include <begin_vertex>', BLOCK_BEGIN_VERTEX);
-    };
-
-    const mesh = new THREE.InstancedMesh(geometry, material, n);
-    // instanceMatrix stays identity: placement comes from aBefore/aAfter in the shader.
-    const color = new THREE.Color();
-    const rgb: [number, number, number] = [0, 0, 0];
-    for (let i = 0; i < n; i++) {
-      sampleScale(GRADE_SCALE, model.grade[i], rgb);
-      color.setRGB(rgb[0], rgb[1], rgb[2], THREE.SRGBColorSpace);
-      mesh.setColorAt(i, color);
-    }
-    mesh.instanceMatrix.needsUpdate = true;
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-
-    this.visBefore = before;
-    this.visAfter = after;
-    this.visHalf = new Float32Array(n * 3);
-    for (let k = 0; k < n * 3; k++) this.visHalf[k] = size[k] / 2;
-    this.instanceToBlock = new Int32Array(model.ids);
-    this.visibleCount = n;
-    mesh.count = n;
-    mesh.boundingSphere = this.unionSphere(before, after, size);
-    this.blockMesh = mesh;
-    this.scene.add(mesh);
-  }
-
-  /** Bounding sphere enclosing both movement endpoints, so culling matches the shader. */
-  private unionSphere(before: Float32Array, after: Float32Array, size: Float32Array): THREE.Sphere {
-    const box = new THREE.Box3();
-    const v = new THREE.Vector3();
-    for (let i = 0; i < before.length; i += 3) {
-      const h = Math.max(size[i], size[i + 1], size[i + 2]) / 2;
-      box.expandByPoint(v.set(before[i] - h, before[i + 1] - h, before[i + 2] - h));
-      box.expandByPoint(v.set(before[i] + h, before[i + 1] + h, before[i + 2] + h));
-      box.expandByPoint(v.set(after[i] - h, after[i + 1] - h, after[i + 2] - h));
-      box.expandByPoint(v.set(after[i] + h, after[i + 1] + h, after[i + 2] + h));
-    }
-    return box.getBoundingSphere(new THREE.Sphere());
-  }
-
-  private buildTerrain(input: SceneInput): void {
-    if (this.terrainMesh) {
-      this.scene.remove(this.terrainMesh);
-      disposeObject(this.terrainMesh);
-      this.terrainMesh = null;
-    }
-    const ext = input.terrainExtent;
-    const fp = input.blockBounds;
-    const step = 1;
-    const nx = Math.round((ext.max[0] - ext.min[0]) / step) + 1;
-    const ny = Math.round((ext.max[1] - ext.min[1]) / step) + 1;
-    const positions = new Float32Array(nx * ny * 3);
-    const colors = new Float32Array(nx * ny * 3);
-    const low = new THREE.Color().setRGB(0.3, 0.29, 0.27, THREE.SRGBColorSpace);
-    const high = new THREE.Color().setRGB(0.52, 0.5, 0.46, THREE.SRGBColorSpace);
-    const c = new THREE.Color();
-    const zMin = input.heightAt(ext.min[0], ext.min[1] + 1);
-    let zMax = zMin;
-    for (let j = 0; j < ny; j++) {
-      for (let i = 0; i < nx; i++) {
-        const x = ext.min[0] + i * step;
-        const y = ext.min[1] + j * step;
-        const z = input.heightAt(x, y);
-        zMax = Math.max(zMax, z);
-        const k = (j * nx + i) * 3;
-        const r = this.frame.toRender([x, y, z]);
-        positions[k] = r[0];
-        positions[k + 1] = r[1];
-        positions[k + 2] = r[2];
-      }
-    }
-    for (let k = 0; k < nx * ny; k++) {
-      const zd = positions[k * 3 + 2] + this.frame.origin[2];
-      c.copy(low).lerp(high, Math.min(1, Math.max(0, (zd - zMin) / Math.max(1, zMax - zMin))));
-      colors[k * 3] = c.r;
-      colors[k * 3 + 1] = c.g;
-      colors[k * 3 + 2] = c.b;
-    }
-    // Skip cells over the block-model footprint: the blocks themselves form that surface.
-    const indices: number[] = [];
-    for (let j = 0; j < ny - 1; j++) {
-      for (let i = 0; i < nx - 1; i++) {
-        const cx = ext.min[0] + (i + 0.5) * step;
-        const cy = ext.min[1] + (j + 0.5) * step;
-        if (cx > fp.min[0] && cx < fp.max[0] && cy > fp.min[1] && cy < fp.max[1]) continue;
-        const a = j * nx + i;
-        const b = a + 1;
-        const d = a + nx;
-        const e = d + 1;
-        indices.push(a, b, e, a, e, d);
-      }
-    }
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    geometry.setIndex(indices);
-    geometry.computeVertexNormals();
-    const material = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.FrontSide });
-    this.terrainMesh = new THREE.Mesh(geometry, material);
-    this.scene.add(this.terrainMesh);
-  }
-
-  private currentRenderCenter(index: number): Vec3 {
-    const model = this.input!.blocks;
-    const b = this.frame.toRender([model.before[index * 3], model.before[index * 3 + 1], model.before[index * 3 + 2]]);
-    return b;
-  }
-
   private updateSelectionBox(): void {
     const id = this.selectedBlockId;
     const i = id === null ? undefined : this.idIndex.get(id);
-    if (i === undefined || !this.input) {
+    if (i === undefined || !this.input || !this.blocks || !this.isBlockDrawn(id!)) {
       this.selectionBox.visible = false;
       return;
     }
     const s = this.input.blocks.size;
-    const p = this.currentRenderCenter(i);
+    const p = this.blocks.currentCenter(i);
     this.selectionBox.position.set(p[0], p[1], p[2]);
     this.selectionBox.scale.set(s[i * 3] * 1.04, s[i * 3 + 1] * 1.04, s[i * 3 + 2] * 1.04);
     this.selectionBox.visible = true;
@@ -525,7 +503,7 @@ export class SceneRenderer {
     const info = this.renderer.info;
     let median: number | null = null;
     if (this.intervals.length >= 10 && performance.now() - this.lastFrameTime < 500) {
-      const sorted = [...this.intervals].sort((a, b) => a - b);
+      const sorted = [...this.intervals].sort((x, y) => x - y);
       median = sorted[Math.floor(sorted.length / 2)];
     }
     this.callbacks.onStats({
@@ -534,7 +512,7 @@ export class SceneRenderer {
       points: info.render.points,
       geometries: info.memory.geometries,
       textures: info.memory.textures,
-      instances: this.blockMesh?.count ?? 0,
+      instances: this.blocks?.count ?? 0,
       pixelRatio: this.renderer.getPixelRatio(),
       canvasSize: [this.canvas.width, this.canvas.height],
       frameIntervalMedianMs: median,
@@ -573,15 +551,10 @@ export class SceneRenderer {
   };
 
   private readonly onVisibilityChange = (): void => {
-    if (!document.hidden) this.invalidate();
+    if (!document.hidden) {
+      // Resume playback from where it was rather than jumping ahead.
+      if (this.playback) this.playback = { startTime: performance.now(), fromT: this.movementT, lastReport: 0 };
+      this.invalidate();
+    }
   };
-}
-
-function disposeObject(obj: THREE.Object3D): void {
-  const mesh = obj as THREE.Mesh;
-  if (mesh.geometry) mesh.geometry.dispose();
-  const mat = mesh.material as THREE.Material | THREE.Material[] | undefined;
-  if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
-  else mat?.dispose();
-  if ((obj as THREE.InstancedMesh).isInstancedMesh) (obj as THREE.InstancedMesh).dispose();
 }

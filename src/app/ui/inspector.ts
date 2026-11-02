@@ -15,8 +15,14 @@ import { ExplorerStore } from '../state/explorer-store';
           <dd data-testid="sel-id">{{ b.id }}</dd>
           <dt>Grid index (i, j, k)</dt>
           <dd>{{ b.gridIndex[0] }}, {{ b.gridIndex[1] }}, {{ b.gridIndex[2] }}</dd>
-          <dt>Centre E / N / Z</dt>
+          <dt>Before E / N / Z</dt>
           <dd data-testid="sel-center">{{ b.centerBefore[0] | number: '1.2-2' }} / {{ b.centerBefore[1] | number: '1.2-2' }} / {{ b.centerBefore[2] | number: '1.2-2' }} m</dd>
+          <dt>After E / N / Z</dt>
+          <dd data-testid="sel-after">{{ b.centerAfter[0] | number: '1.2-2' }} / {{ b.centerAfter[1] | number: '1.2-2' }} / {{ b.centerAfter[2] | number: '1.2-2' }} m</dd>
+          <dt>Δ E / N / Z</dt>
+          <dd data-testid="sel-disp">{{ b.displacement[0] | number: '1.2-2' }} / {{ b.displacement[1] | number: '1.2-2' }} / {{ b.displacement[2] | number: '1.2-2' }} m</dd>
+          <dt>|Displacement|</dt>
+          <dd data-testid="sel-disp-mag">{{ b.displacementMagnitude | number: '1.2-2' }} m</dd>
           <dt>Dimensions</dt>
           <dd>{{ b.size[0] }} × {{ b.size[1] }} × {{ b.size[2] }} m</dd>
           <dt>Density</dt>
@@ -36,7 +42,10 @@ import { ExplorerStore } from '../state/explorer-store';
             }
           </dd>
         </dl>
-        <p class="section__note">Tonnes = block volume × density. Ore/waste is derived from the current cutoff.</p>
+        <p class="section__note">
+          Tonnes = block volume × density. Ore/waste is derived from the current cutoff. Displacement comes from an
+          illustrative procedural field; blocks may overlap after movement.
+        </p>
       } @else {
         <p class="empty" data-testid="sel-empty">No block selected. Click a block in the 3D view.</p>
       }

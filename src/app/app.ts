@@ -3,11 +3,12 @@ import { ExplorerStore } from './state/explorer-store';
 import { SCENE_PRESETS } from './state/scene-presets';
 import { ControlPanel } from './ui/control-panel';
 import { Inspector } from './ui/inspector';
+import { Timeline } from './ui/timeline';
 import { Viewport } from './ui/viewport';
 
 @Component({
   selector: 'app-root',
-  imports: [Viewport, Inspector, ControlPanel],
+  imports: [Viewport, Inspector, ControlPanel, Timeline],
   template: `
     <header class="topbar">
       <span class="topbar__title">Blast Movement Explorer</span>
@@ -37,6 +38,7 @@ import { Viewport } from './ui/viewport';
     </aside>
 
     <app-viewport />
+    <app-timeline />
 
     <aside class="panel panel--right" [class.panel--collapsed]="rightCollapsed()" aria-label="Inspector and analysis">
       <div class="panel__toggle" style="justify-content: flex-start">

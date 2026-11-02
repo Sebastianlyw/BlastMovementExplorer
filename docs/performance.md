@@ -33,3 +33,21 @@ The production initial bundle is ~740 kB raw / ~170 kB transferred, most of it
 Three.js. The Angular default budget (500 kB warning) was raised to 900 kB
 warning / 1.2 MB error in `angular.json`; the 3D viewport is the core of the
 product, so it is not deferred.
+
+## Headless test rendering (not a performance result)
+
+Playwright runs Chromium 156 headless with SwiftShader (CPU) WebGL:
+`ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero)), SwiftShader driver)`.
+
+Measured with a `requestAnimationFrame` timestamp log during playback of the default
+scene at 1280 × 720 (2026-11-03): idle frames ~31 ms, frames that render the scene
+**~430 ms** each, even at Low quality (no MSAA, DPR 1). The scene is ~420k triangles
+and ~690k vertex-shader invocations per frame, all on the CPU.
+
+Consequences, handled in the e2e setup rather than hidden:
+
+- Functional e2e runs use `?quality=low` and `reducedMotion: 'reduce'` (no camera
+  inertia, which would otherwise render ~100 slow frames after every drag).
+- Tests never rely on wall-clock timing against rendered frames (e.g. Pause is
+  dispatched without Playwright's two-frame stability wait).
+- These numbers say nothing about real GPU performance; see the benchmark section.

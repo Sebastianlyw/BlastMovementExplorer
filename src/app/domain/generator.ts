@@ -1,3 +1,4 @@
+import { boundsOf, computeAfterCenters, DEFAULT_MOVEMENT_PARAMS } from './movement';
 import { fbm3, valueNoise3 } from './random';
 import {
   BlockModel,
@@ -40,6 +41,7 @@ export const DEFAULT_GENERATION_PARAMS: GenerationParams = {
     wallHeight: 12,
     extent: { min: [-40, -50, -10], max: [160, 130, 40] },
   },
+  movement: DEFAULT_MOVEMENT_PARAMS,
 };
 
 const DEG = Math.PI / 180;
@@ -169,17 +171,27 @@ export function generateDataset(seed: number, params: GenerationParams = DEFAULT
     }
   }
 
-  const blocks: BlockModel = { count: n, ids, gridIndex, before, size, density, grade, geoClass };
+  const blockBounds = gridBounds(params);
+  const after = computeAfterCenters(
+    (seed ^ 0x1f83d9ab) >>> 0,
+    params.movement,
+    { blockBounds, faceCrestY: params.terrain.faceCrestY, floorZ: params.terrain.floorZ },
+    before,
+    size,
+  );
+  const blocks: BlockModel = { count: n, ids, gridIndex, before, after, size, density, grade, geoClass };
   const metadata: DatasetMetadata = {
     schemaVersion: SCHEMA_VERSION,
     generatorVersion: GENERATOR_VERSION,
     seed,
     units: { length: 'm', mass: 't', grade: 'g/t', density: 't/m3' },
     coordinateSystem: { kind: 'local', axes: 'X East, Y North, Z Up', handedness: 'right', epsg: null },
-    blockBounds: gridBounds(params),
+    blockBounds,
+    finalBounds: boundsOf(after, size),
     params,
     provenance:
-      'Synthetic data generated procedurally by Blast Movement Explorer. Not measured, not derived from any real mine. For demonstration only.',
+      'Synthetic data generated procedurally by Blast Movement Explorer. Not measured, not derived from any real mine. ' +
+      'Movement is an illustrative procedural field, not a blast physics prediction. For demonstration only.',
   };
   return { metadata, blocks };
 }

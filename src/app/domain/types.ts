@@ -5,9 +5,10 @@
  *   local mine coordinates, X = East, Y = North, Z = Up, metres, right-handed.
  *   There is no geodetic datum / EPSG code — the data is synthetic.
  */
+import type { MovementParams } from './movement';
 
 export const SCHEMA_VERSION = 1;
-export const GENERATOR_VERSION = '1.0.0';
+export const GENERATOR_VERSION = '1.1.0';
 
 export type Vec3 = readonly [number, number, number];
 
@@ -78,6 +79,7 @@ export interface GenerationParams {
   readonly oreBody: OreBodyParams;
   readonly vein: VeinParams;
   readonly terrain: TerrainParams;
+  readonly movement: MovementParams;
 }
 
 /** Geological class, fixed at generation. Independent of the economic (cutoff) class. */
@@ -112,7 +114,10 @@ export interface DatasetMetadata {
     readonly handedness: 'right';
     readonly epsg: null;
   };
+  /** Bounds of all blocks before movement (centre ± half size). */
   readonly blockBounds: Bounds3;
+  /** Bounds of all blocks after movement; contains every moved block. */
+  readonly finalBounds: Bounds3;
   readonly params: GenerationParams;
   readonly provenance: string;
 }
@@ -129,6 +134,8 @@ export interface BlockModel {
   readonly gridIndex: Int32Array;
   /** Pre-movement block centres (x, y, z) interleaved, length 3N, metres. */
   readonly before: Float32Array;
+  /** Post-movement block centres, interleaved, length 3N, metres. */
+  readonly after: Float32Array;
   /** True block dimensions (dx, dy, dz) interleaved, length 3N, metres. */
   readonly size: Float32Array;
   /** t/m³ */
@@ -143,6 +150,10 @@ export interface Block {
   readonly id: number;
   readonly gridIndex: Vec3;
   readonly centerBefore: Vec3;
+  readonly centerAfter: Vec3;
+  /** after − before, metres. */
+  readonly displacement: Vec3;
+  readonly displacementMagnitude: number;
   readonly size: Vec3;
   readonly densityTonnesPerM3: number;
   readonly gradeGramsPerTonne: number;

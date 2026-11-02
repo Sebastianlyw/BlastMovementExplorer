@@ -3,8 +3,15 @@ import { buildIdIndex, getBlock, isOre } from '../domain/blocks';
 import { generateDataset, terrainHeightFor } from '../domain/generator';
 import { Block, Dataset } from '../domain/types';
 import { DEFAULT_PRESET_ID, findPreset } from './scene-presets';
+import { initialQuality, Quality } from './quality';
 
 export type LoadStatus = 'loading' | 'ready' | 'error';
+export type ColorMode = 'grade' | 'displacement';
+
+export interface LayerState {
+  readonly blocks: boolean;
+  readonly terrain: boolean;
+}
 
 /**
  * Application state. Signals hold parameters, identifiers and summaries only;
@@ -20,6 +27,13 @@ export class ExplorerStore {
   /** Increments whenever a new dataset replaces the old one. */
   readonly datasetVersion = signal(0);
   readonly generationMs = signal<number | null>(null);
+
+  /** Movement interpolation t ∈ [0, 1]. Updated at ≤ 10 Hz during playback, never per frame. */
+  readonly movementT = signal(0);
+  readonly playing = signal(false);
+  readonly colorMode = signal<ColorMode>('grade');
+  readonly layers = signal<LayerState>({ blocks: true, terrain: true });
+  readonly quality = signal<Quality>(initialQuality());
 
   private dataset: Dataset | null = null;
   private idIndex = new Map<number, number>();
@@ -62,6 +76,8 @@ export class ExplorerStore {
     this.status.set('loading');
     this.errorMessage.set(null);
     this.selectedBlockId.set(null);
+    this.playing.set(false);
+    this.movementT.set(0);
     // Yield so the loading state paints before the synchronous generation runs.
     await new Promise((r) => setTimeout(r, 0));
     if (token !== this.loadToken) return;
@@ -84,5 +100,20 @@ export class ExplorerStore {
 
   select(blockId: number | null): void {
     this.selectedBlockId.set(blockId);
+  }
+
+  setMovementT(t: number): void {
+    this.playing.set(false);
+    this.movementT.set(Math.min(1, Math.max(0, t)));
+  }
+
+  /** Called by the renderer's low-frequency playback reports. */
+  reportPlayback(t: number, playing: boolean): void {
+    this.movementT.set(t);
+    this.playing.set(playing);
+  }
+
+  setLayer(layer: keyof LayerState, visible: boolean): void {
+    this.layers.update((l) => ({ ...l, [layer]: visible }));
   }
 }

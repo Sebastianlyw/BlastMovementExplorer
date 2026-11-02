@@ -15,6 +15,10 @@ export default defineConfig({
   use: {
     baseURL: 'http://localhost:4310',
     viewport: { width: 1280, height: 720 },
+    // Software WebGL is slow (0.3–1 s per frame at High quality for the default scene), which
+    // starves input handling. Functional tests therefore run at Low quality with reduced motion
+    // (no camera inertia). Neither changes picking, data or analysis code paths.
+    reducedMotion: 'reduce',
     trace: 'retain-on-failure',
     launchOptions: { args: ['--enable-unsafe-swiftshader', '--use-angle=swiftshader'] },
   },

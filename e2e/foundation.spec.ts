@@ -6,7 +6,7 @@ test.describe('foundation-and-synthetic-scene', () => {
     const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(e.message));
     await openApp(page);
-    await expect(page.getByRole('status')).toHaveCount(0);
+    await expect(page.getByText('Generating synthetic scene')).toHaveCount(0);
     await expect(page.getByLabel('Colour legend')).toContainText('Grade (g/t)');
     await expect(page.getByLabel('Orientation and scale')).toContainText('Local coordinates');
     expect(errors).toEqual([]);
