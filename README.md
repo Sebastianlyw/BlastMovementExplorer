@@ -45,7 +45,7 @@ URL parameters: `?quality=high|medium|low`, `?points=100k|300k|1m` (show the sur
 The app is static: no backend, no API keys, no login. Any static host works. For a
 GitHub Pages project site at `https://<user>.github.io/<repo>/`, build with the matching
 base href (`npm run build:pages` uses `/BlastMovementExplorer/`) and publish
-`dist/pages/browser`. No live URL is listed here until a deployment exists.
+`dist/pages/browser`. Live demo: https://sebastianlyw.github.io/BlastMovementExplorer/ (GitHub Pages, deployed by `.github/workflows/deploy-pages.yml`).
 
 ## What you can do
 
