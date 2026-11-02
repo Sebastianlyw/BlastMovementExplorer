@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { buildIdIndex } from '../domain/blocks';
 import { BlockModel, Bounds3, Vec3 } from '../domain/types';
 import { BlockColorMode, BlockLayer } from './block-layer';
+import { DigRegionDisplay, DigRegionLayer } from './dig-region-layer';
 import { Ray } from './picking';
 import { TerrainLayer } from './terrain-layer';
 import { WorldFrame } from './world-frame';
@@ -108,6 +109,8 @@ export class SceneRenderer {
   private idIndex = new Map<number, number>();
   private blocks: BlockLayer | null = null;
   private terrain: TerrainLayer | null = null;
+  private digRegions: DigRegionLayer | null = null;
+  private digRegionDisplay: DigRegionDisplay | null = null;
   private selectedBlockId: number | null = null;
   private layers: LayerVisibility = { blocks: true, terrain: true };
   private colorMode: BlockColorMode = 'grade';
@@ -208,6 +211,11 @@ export class SceneRenderer {
     this.terrain = new TerrainLayer(this.frame, input.terrainExtent, input.blockBounds, input.heightAt, input.floorZ);
     this.scene.add(this.terrain.mesh);
 
+    this.removeLayer(this.digRegions);
+    this.digRegions = new DigRegionLayer(this.frame);
+    if (this.digRegionDisplay) this.digRegions.set(this.digRegionDisplay);
+    this.scene.add(this.digRegions.mesh);
+
     this.applyLayers();
     this.selectedBlockId = null;
     this.updateSelectionBox();
@@ -217,6 +225,13 @@ export class SceneRenderer {
   setSelection(blockId: number | null): void {
     this.selectedBlockId = blockId;
     this.updateSelectionBox();
+    this.invalidate();
+  }
+
+  /** Dig region outlines in domain coordinates. Call after setScene. */
+  setDigRegions(display: DigRegionDisplay): void {
+    this.digRegionDisplay = display;
+    this.digRegions?.set(display);
     this.invalidate();
   }
 
@@ -382,6 +397,8 @@ export class SceneRenderer {
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
     this.blocks?.dispose();
     this.terrain?.dispose();
+    this.digRegions?.dispose();
+    this.digRegions = null;
     this.selectionBox.geometry.dispose();
     (this.selectionBox.material as THREE.Material).dispose();
     this.blocks = null;

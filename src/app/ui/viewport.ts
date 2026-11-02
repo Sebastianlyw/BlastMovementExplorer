@@ -1,6 +1,7 @@
 import { afterNextRender, Component, computed, DestroyRef, effect, ElementRef, inject, signal, untracked, viewChild } from '@angular/core';
 import { DISPLACEMENT_SCALE, GRADE_SCALE, scaleGradientCss } from '../renderer/colormap';
 import { CameraPreset, RenderStats, SceneRenderer, ViewIndicator, WebGLUnavailableError } from '../renderer/scene-renderer';
+import { buildVisibilityMask, countVisible, isFilterActive, NO_GRADE_FILTER } from '../domain/filtering';
 import { ExplorerStore } from '../state/explorer-store';
 import { Quality, QUALITY_SETTINGS } from '../state/quality';
 import { installDebugHook } from './debug-hook';
@@ -67,6 +68,18 @@ const NICE_LENGTHS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500];
           <p>This browser or device could not create a WebGL context, so the 3D view cannot be shown. Try a current desktop browser with hardware acceleration enabled.</p>
         </div>
       </div>
+    }
+    @if (store.status() === 'ready' && store.layers().blocks && store.visibleBlockCount() === 0) {
+      <div class="overlay overlay--status" role="status" data-testid="empty-filter">
+        <div class="status-card">
+          <strong>No blocks match the current filters.</strong>
+          <p>Grade {{ store.gradeFilter().minGrade }}–{{ store.gradeFilter().maxGrade }} g/t{{ store.gradeFilter().oreOnly ? ', ore only (≥ ' + store.cutoff() + ' g/t)' : '' }}.</p>
+          <button class="btn" type="button" (click)="clearFilters()">Clear filters</button>
+        </div>
+      </div>
+    }
+    @if (store.notice(); as n) {
+      <div class="overlay overlay--toast" role="status" data-testid="notice">{{ n }}</div>
     }
     @if (webgl() === 'lost') {
       <div class="overlay overlay--status" role="alert">
@@ -161,6 +174,57 @@ export class Viewport {
       if (this.rendererGen()) this.renderer?.setColorMode(mode);
     });
 
+    // Grade filters → visibility mask (view only; metrics never read it).
+    effect(() => {
+      this.store.datasetVersion();
+      const filter = this.store.gradeFilter();
+      const cutoff = this.store.cutoff();
+      const ds = this.store.currentDataset();
+      if (!ds) return;
+      let maxGrade = 0;
+      for (let i = 0; i < ds.blocks.count; i++) maxGrade = Math.max(maxGrade, ds.blocks.grade[i]);
+      const active = isFilterActive(filter, maxGrade);
+      const mask = active ? buildVisibilityMask(ds.blocks.grade, filter, cutoff) : null;
+      untracked(() => this.store.visibleBlockCount.set(mask ? countVisible(mask) : ds.blocks.count));
+      if (this.rendererGen()) this.renderer?.setVisibleMask(mask);
+    });
+
+    effect(() => {
+      const s = this.store.section();
+      if (this.rendererGen()) this.renderer?.setSection(s.enabled ? s.z : null);
+    });
+
+    effect(() => {
+      this.store.datasetVersion();
+      const original = this.store.originalRegion();
+      const adjusted = this.store.adjustedRegion();
+      const md = this.store.metadata();
+      if (!this.rendererGen() || !md) return;
+      this.renderer?.setDigRegions({
+        original,
+        adjusted,
+        zMin: Math.min(md.blockBounds.min[2], md.finalBounds.min[2]),
+        zMax: Math.max(md.blockBounds.max[2], md.finalBounds.max[2]),
+      });
+    });
+
+    // A selection that is no longer drawn is cleared, with a notice. Runs after the effects above.
+    effect(() => {
+      const id = this.store.selectedBlockId();
+      this.store.gradeFilter();
+      this.store.cutoff();
+      this.store.section();
+      this.store.movementT();
+      this.store.layers();
+      if (id === null || !this.rendererGen() || !this.renderer) return;
+      if (!this.renderer.isBlockDrawn(id)) {
+        untracked(() => {
+          this.store.select(null);
+          this.store.showNotice(`Selection cleared: block ${id} is hidden by the current filters, section or layers.`);
+        });
+      }
+    });
+
     inject(DestroyRef).onDestroy(() => this.destroyRenderer());
   }
 
@@ -196,6 +260,10 @@ export class Viewport {
     this.removeHook = null;
     this.renderer?.dispose();
     this.renderer = null;
+  }
+
+  protected clearFilters(): void {
+    this.store.gradeFilter.set(NO_GRADE_FILTER);
   }
 
   protected camera(preset: CameraPreset): void {

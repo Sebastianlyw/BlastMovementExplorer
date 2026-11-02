@@ -2,13 +2,15 @@ import { Component, inject, signal } from '@angular/core';
 import { ExplorerStore } from './state/explorer-store';
 import { SCENE_PRESETS } from './state/scene-presets';
 import { ControlPanel } from './ui/control-panel';
+import { AnalysisPanel } from './ui/analysis-panel';
 import { Inspector } from './ui/inspector';
+import { SceneIo } from './ui/scene-io';
 import { Timeline } from './ui/timeline';
 import { Viewport } from './ui/viewport';
 
 @Component({
   selector: 'app-root',
-  imports: [Viewport, Inspector, ControlPanel, Timeline],
+  imports: [Viewport, Inspector, ControlPanel, Timeline, AnalysisPanel, SceneIo],
   template: `
     <header class="topbar">
       <span class="topbar__title">Blast Movement Explorer</span>
@@ -24,7 +26,8 @@ import { Viewport } from './ui/viewport';
         Synthetic data · Illustrative movement
       </span>
       <span class="topbar__spacer"></span>
-      <button class="btn" type="button" title="Reload the current scene and clear the selection" (click)="resetScene()">Reset</button>
+      <app-scene-io />
+      <button class="btn" type="button" data-testid="reset-all" title="Reload the current scene and restore default cutoff, filters, section, regions and display settings" (click)="resetScene()">Reset</button>
     </header>
 
     <aside class="panel panel--left" [class.panel--collapsed]="leftCollapsed()" aria-label="Controls">
@@ -47,7 +50,7 @@ import { Viewport } from './ui/viewport';
           {{ rightCollapsed() ? '‹' : '›' }}
         </button>
       </div>
-      <div class="panel__body" id="right-body"><app-inspector /></div>
+      <div class="panel__body" id="right-body"><app-inspector /><app-analysis-panel /></div>
     </aside>
   `,
   host: { class: 'shell' },
@@ -67,6 +70,6 @@ export class App {
   }
 
   protected resetScene(): void {
-    void this.store.loadPreset(this.store.presetId());
+    void this.store.resetAll();
   }
 }

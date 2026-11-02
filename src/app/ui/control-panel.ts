@@ -2,10 +2,12 @@ import { DecimalPipe } from '@angular/common';
 import { Component, inject } from '@angular/core';
 import { ExplorerStore } from '../state/explorer-store';
 import { QUALITY_SETTINGS } from '../state/quality';
+import { DigRegionPanel } from './dig-region-panel';
+import { ViewFilters } from './view-filters';
 
 @Component({
   selector: 'app-control-panel',
-  imports: [DecimalPipe],
+  imports: [DecimalPipe, ViewFilters, DigRegionPanel],
   template: `
     <section class="section" aria-labelledby="scene-title">
       <h2 class="section__title" id="scene-title">Scene</h2>
@@ -49,6 +51,19 @@ import { QUALITY_SETTINGS } from '../state/quality';
       </div>
     </section>
 
+    <section class="section" aria-labelledby="cutoff-title">
+      <h2 class="section__title" id="cutoff-title">Cutoff</h2>
+      <div class="field">
+        <label for="cutoff">Cutoff grade (g/t)</label>
+        <input id="cutoff" type="number" min="0" max="10" step="0.1" data-testid="cutoff-input"
+          [value]="store.cutoff()" (change)="onCutoff($event)" />
+      </div>
+      <p class="section__note">Demo parameter. Blocks with grade ≥ cutoff are ore.</p>
+    </section>
+
+    <app-view-filters />
+    <app-dig-region-panel />
+
     <section class="section" aria-labelledby="render-title">
       <h2 class="section__title" id="render-title">Rendering</h2>
       <div class="field">
@@ -62,15 +77,6 @@ import { QUALITY_SETTINGS } from '../state/quality';
       <p class="section__note">Changing quality recreates the WebGL context.</p>
     </section>
 
-    <section class="section" aria-labelledby="cutoff-title">
-      <h2 class="section__title" id="cutoff-title">Cutoff</h2>
-      <div class="field">
-        <label for="cutoff">Cutoff grade (g/t)</label>
-        <input id="cutoff" type="number" min="0" max="10" step="0.1" data-testid="cutoff-input"
-          [value]="store.cutoff()" (change)="onCutoff($event)" />
-      </div>
-      <p class="section__note">Demo parameter. Blocks with grade ≥ cutoff are ore.</p>
-    </section>
   `,
 })
 export class ControlPanel {

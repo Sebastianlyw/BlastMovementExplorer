@@ -418,3 +418,115 @@ input[type='checkbox'] {
   gap: 8px;
   margin: 4px 0;
 }
+
+/* ---------------------------------------------------------------- dig regions & analysis */
+
+.region-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0 4px;
+  color: var(--text-muted);
+}
+.swatch {
+  display: inline-block;
+  width: 18px;
+  height: 0;
+  border-top: 2px solid;
+}
+.swatch--original {
+  border-top-style: dashed;
+  border-color: var(--original-region);
+}
+.swatch--adjusted {
+  border-color: var(--adjusted-region);
+}
+.btn-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.metrics {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.metrics th,
+.metrics td {
+  padding: 3px 4px;
+  border-bottom: 1px solid var(--border);
+  text-align: right;
+  white-space: nowrap;
+}
+.metrics th[scope='row'] {
+  text-align: left;
+  font-weight: normal;
+  color: var(--text-muted);
+}
+.metrics thead th {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.metrics td {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.scenario-legend {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 8px;
+  margin: 8px 0 0;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+.scenario-legend dt {
+  font-weight: 600;
+  color: var(--text);
+}
+.scenario-legend dd {
+  margin: 0;
+}
+.definitions {
+  margin-top: 8px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+.definitions summary {
+  cursor: pointer;
+  color: var(--text-muted);
+}
+.definitions ul {
+  padding-left: 16px;
+  margin: 4px 0;
+}
+
+.scene-io {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+}
+.import-errors {
+  position: absolute;
+  top: 36px;
+  right: 0;
+  z-index: 20;
+  width: 360px;
+  background: var(--surface);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+}
+.import-errors ul {
+  margin: 6px 0;
+  padding-left: 18px;
+  color: var(--danger);
+}
+.hint {
+  color: var(--text-faint);
+  cursor: help;
+}
+.metrics td {
+  font-size: 11.5px;
+}

@@ -27,6 +27,18 @@ Default scene: seed 20261103, generator 1.0.0, 60 × 40 × 12 = 28,800 blocks.
 than two frames and only runs on scene load. A Worker is reserved for work
 measured to block the main thread (see the point-cloud section once added).
 
+## Dig analysis and filtering (main thread)
+
+Node 24, default dataset, 200 runs after 20 warm-up runs (2026-11-03):
+
+| Operation | Median | p95 |
+|---|---|---|
+| `computeScenarios` (A, B, C over all 28,800 blocks) | 0.33 ms | 0.62 ms |
+| `buildVisibilityMask` (ore-only) | 0.07 ms | — |
+
+**Decision:** analysis and filtering stay on the main thread; a Worker would cost more
+in message passing than the computation itself.
+
 ## Bundle size
 
 The production initial bundle is ~740 kB raw / ~170 kB transferred, most of it

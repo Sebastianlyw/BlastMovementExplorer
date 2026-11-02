@@ -17,12 +17,12 @@ import { ExplorerStore } from '../state/explorer-store';
     <button class="btn" type="button" data-testid="t-after" title="Show blocks at their post-movement positions (t = 1)"
       (click)="store.setMovementT(1)">After (t = 1)</button>
     <label class="timeline__slider" for="movement-t">
-      <span title="Linear interpolation between the before and after positions. Not elapsed time and not a real trajectory.">Movement interpolation t</span>
+      <span title="Linear interpolation between the before and after positions. Not elapsed time and not a real trajectory.">Movement interpolation t <span aria-hidden="true" class="hint">ⓘ</span></span>
       <input id="movement-t" type="range" min="0" max="1" step="0.01" data-testid="t-slider"
         [value]="store.movementT()" (input)="onSlide($event)" aria-describedby="t-help" />
       <output data-testid="t-value">{{ store.movementT() | number: '1.2-2' }}</output>
     </label>
-    <span class="timeline__help" id="t-help" title="Illustrative interpolation — not time, not a trajectory.">Illustrative interpolation — not time, not a trajectory.</span>
+    <span class="sr-only" id="t-help">Illustrative interpolation between the before and after positions — not time, not a trajectory.</span>
   `,
   host: { class: 'timeline', role: 'group', 'aria-label': 'Movement interpolation' },
 })
