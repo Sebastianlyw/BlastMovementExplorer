@@ -544,3 +544,30 @@ input[type='checkbox'] {
   padding: 4px 8px;
   color: var(--text-muted);
 }
+
+/* ---------------------------------------------------------------- diagnostics */
+
+.overlay--diag {
+  top: 44px;
+  right: 8px;
+  width: 300px;
+  max-height: calc(100% - 160px);
+  overflow-y: auto;
+  background: rgba(15, 18, 22, 0.94);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  pointer-events: auto;
+}
+.diag__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.diag__gpu {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 160px;
+}

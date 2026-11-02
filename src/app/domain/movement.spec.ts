@@ -41,19 +41,29 @@ describe('movement field', () => {
     expect(maxV).toBeLessThanOrEqual(DEFAULT_MOVEMENT_PARAMS.verticalMaxMetres + 1e-5);
   });
 
-  it('is spatially continuous', () => {
-    let diff = 0;
-    let n = 0;
+  it('is spatially continuous along E, N and Z', () => {
+    const nx = 60;
+    const ny = 40;
+    const disp = (i: number) => [0, 1, 2].map((k) => b.after[i * 3 + k] - b.before[i * 3 + k]);
     let mag = 0;
-    for (let i = 0; i < b.count - 1; i++) {
-      const di = [0, 1, 2].map((k) => b.after[i * 3 + k] - b.before[i * 3 + k]);
-      mag += Math.hypot(di[0], di[1], di[2]);
-      if (b.gridIndex[i * 3] === 59) continue;
-      const dj = [0, 1, 2].map((k) => b.after[(i + 1) * 3 + k] - b.before[(i + 1) * 3 + k]);
-      diff += Math.hypot(di[0] - dj[0], di[1] - dj[1], di[2] - dj[2]);
-      n++;
+    for (let i = 0; i < b.count; i++) mag += Math.hypot(...(disp(i) as [number, number, number]));
+    mag /= b.count;
+    for (const [axis, stride, last] of [
+      [0, 1, nx - 1],
+      [1, nx, ny - 1],
+      [2, nx * ny, 11],
+    ] as const) {
+      let diff = 0;
+      let n = 0;
+      for (let i = 0; i < b.count; i++) {
+        if (b.gridIndex[i * 3 + axis] === last) continue;
+        const a = disp(i);
+        const c = disp(i + stride);
+        diff += Math.hypot(a[0] - c[0], a[1] - c[1], a[2] - c[2]);
+        n++;
+      }
+      expect(diff / n, `axis ${axis}`).toBeLessThan(mag / 3);
     }
-    expect(diff / n).toBeLessThan((mag / (b.count - 1)) / 3);
   });
 
   it('final bounds contain every moved block and nothing is removed', () => {

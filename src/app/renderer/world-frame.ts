@@ -26,6 +26,22 @@ export class WorldFrame {
     return [p[0] + this.origin[0], p[1] + this.origin[1], p[2] + this.origin[2]];
   }
 
+  /** Domain elevation → render z (for planes such as the section). */
+  zToRender(z: number): number {
+    return z - this.origin[2];
+  }
+
+  /** Converts an interleaved xyz buffer into render space IN PLACE (caller owns the buffer). */
+  bufferToRenderInPlace(buf: Float32Array): Float32Array {
+    const [ox, oy, oz] = this.origin;
+    for (let i = 0; i < buf.length; i += 3) {
+      buf[i] -= ox;
+      buf[i + 1] -= oy;
+      buf[i + 2] -= oz;
+    }
+    return buf;
+  }
+
   /** Converts an interleaved xyz buffer into render space (new array). */
   bufferToRender(src: ArrayLike<number>): Float32Array {
     const out = new Float32Array(src.length);

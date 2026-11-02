@@ -1,0 +1,119 @@
+{
+  "format": "blast-movement-explorer/scene-config",
+  "schemaVersion": 1,
+  "generatorVersion": "1.1.0",
+  "scene": {
+    "presetId": "bench-a",
+    "seed": 20261103,
+    "generation": {
+      "grid": {
+        "nx": 60,
+        "ny": 40,
+        "nz": 12,
+        "blockSize": 2,
+        "origin": [
+          0,
+          0,
+          0
+        ]
+      },
+      "oreBody": {
+        "center": [
+          56,
+          22,
+          12
+        ],
+        "radii": [
+          42,
+          17,
+          8.5
+        ],
+        "strikeDeg": 28,
+        "dipDeg": 18,
+        "peakGrade": 3.2,
+        "backgroundGrade": 0.12,
+        "noiseAmplitude": 0.28,
+        "noiseScale": 14
+      },
+      "vein": {
+        "enabled": true,
+        "point": [
+          98,
+          40,
+          12
+        ],
+        "strikeDeg": 100,
+        "halfWidth": 2.2,
+        "grade": 1.7,
+        "halfLength": 52
+      },
+      "terrain": {
+        "benchTopZ": 24,
+        "floorZ": 0,
+        "faceCrestY": 0,
+        "wallHeight": 12,
+        "extent": {
+          "min": [
+            -40,
+            -50,
+            -10
+          ],
+          "max": [
+            160,
+            130,
+            40
+          ]
+        }
+      },
+      "movement": {
+        "throwAzimuthDeg": -90,
+        "throwMetres": 6,
+        "faceDecayMetres": 30,
+        "depthRatio": 0.55,
+        "lateralSpreadMetres": 1.5,
+        "dropMetres": 2,
+        "verticalMaxMetres": 2.5,
+        "noiseMetres": 0.6,
+        "noiseScaleMetres": 18
+      }
+    }
+  },
+  "cutoff": 0.8,
+  "regions": {
+    "original": {
+      "centerE": 68,
+      "centerN": 34,
+      "width": 72,
+      "length": 60
+    },
+    "adjusted": {
+      "centerE": 68,
+      "centerN": 31.1,
+      "width": 72,
+      "length": 60
+    }
+  },
+  "display": {
+    "colorMode": "grade",
+    "layers": {
+      "blocks": true,
+      "terrain": true,
+      "pointCloud": false
+    },
+    "gradeFilter": {
+      "minGrade": 0,
+      "maxGrade": 10,
+      "oreOnly": false
+    },
+    "section": {
+      "enabled": false,
+      "z": 12
+    },
+    "movementT": 1,
+    "quality": "high",
+    "pointDensity": "100k",
+    "pointSize": 2,
+    "pointColorMode": "height"
+  },
+  "note": "Blast Movement Explorer scene configuration. Synthetic data and illustrative movement; not for mining decisions."
+}

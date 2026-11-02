@@ -1,11 +1,14 @@
 // Minimal static server for the production build (no dependencies).
-// Usage: node scripts/serve-dist.mjs [port]
+// Usage: node scripts/serve-dist.mjs [port] [--prefix=/BlastMovementExplorer/] [--root=dist/pages/browser]
 import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { extname, join, normalize, resolve } from 'node:path';
 
-const root = resolve('dist/blast-movement-explorer/browser');
+const rootArg = process.argv.find((a) => a.startsWith('--root='));
+const root = resolve(rootArg ? rootArg.slice('--root='.length) : 'dist/blast-movement-explorer/browser');
 const port = Number(process.argv[2] ?? process.env.PORT ?? 4310);
+// Optional URL prefix, e.g. /BlastMovementExplorer/ to mimic GitHub Pages project sites.
+const prefix = (process.argv.find((a) => a.startsWith('--prefix=')) ?? '--prefix=/').slice('--prefix='.length);
 const types = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -19,7 +22,11 @@ const types = {
 
 createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://localhost');
-  let file = normalize(join(root, decodeURIComponent(url.pathname)));
+  if (!url.pathname.startsWith(prefix)) {
+    res.writeHead(404).end('Not found (outside prefix)');
+    return;
+  }
+  let file = normalize(join(root, decodeURIComponent(url.pathname.slice(prefix.length - 1))));
   if (!file.startsWith(root)) {
     res.writeHead(403).end();
     return;
@@ -35,4 +42,4 @@ createServer(async (req, res) => {
   } catch {
     res.writeHead(404).end('Not found');
   }
-}).listen(port, () => console.log(`Serving ${root} at http://localhost:${port}`));
+}).listen(port, () => console.log(`Serving ${root} at http://localhost:${port}${prefix}`));

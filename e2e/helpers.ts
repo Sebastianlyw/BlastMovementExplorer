@@ -1,7 +1,7 @@
 import { expect, Page } from '@playwright/test';
 
 /** Open the app and wait until the default scene has been generated and rendered. */
-export async function openApp(page: Page, path = '/?quality=low'): Promise<void> {
+export async function openApp(page: Page, path = './?quality=low'): Promise<void> {
   await page.goto(path);
   await expect(page.getByTestId('synthetic-label')).toHaveText('Synthetic data · Illustrative movement');
   await page.waitForFunction(() => !!window.__bmx && window.__bmx.findPickableBlock() !== null, null, { timeout: 30_000 });

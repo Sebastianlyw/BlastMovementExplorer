@@ -4,8 +4,9 @@ import { CameraPreset, RenderStats, SceneRenderer, ViewIndicator, WebGLUnavailab
 import { buildVisibilityMask, countVisible, isFilterActive, NO_GRADE_FILTER } from '../domain/filtering';
 import { ExplorerStore, PointDensity } from '../state/explorer-store';
 import { createPointCloudWorker, PointCloudClient } from '../workers/point-cloud-client';
-import { Quality, QUALITY_SETTINGS } from '../state/quality';
+import { autoBenchmarkRequested, Quality, QUALITY_SETTINGS } from '../state/quality';
 import { installDebugHook } from './debug-hook';
+import { BenchmarkState, DiagnosticsPanel } from './diagnostics-panel';
 
 type WebGLState = 'pending' | 'ok' | 'unavailable' | 'lost';
 
@@ -22,6 +23,7 @@ const NICE_LENGTHS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500];
       <button class="btn" type="button" title="Look straight down (North up)" (click)="camera('top')">Top</button>
       <button class="btn" type="button" title="Look north from the free face" (click)="camera('front')">Front</button>
       <button class="btn" type="button" title="Isometric view from the south-east" (click)="camera('iso')">Isometric</button>
+      <button class="btn" type="button" data-testid="diag-toggle" [attr.aria-pressed]="showDiagnostics()" title="Show rendering diagnostics and the benchmark" (click)="showDiagnostics.set(!showDiagnostics())">Diagnostics</button>
     </div>
 
     <div class="overlay overlay--legend" aria-label="Colour legend">
@@ -53,6 +55,10 @@ const NICE_LENGTHS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500];
 
     @if (store.layers().pointCloud && store.pointCloudStatus().state === 'ready') {
       <div class="overlay overlay--scan" data-testid="scan-label">Points: Synthetic surface scan (pre-blast) · not LiDAR</div>
+    }
+    @if (showDiagnostics()) {
+      <app-diagnostics-panel [stats]="stats()" [quality]="store.quality()" [bench]="bench()"
+        (closed)="showDiagnostics.set(false)" (run)="runBenchmark()" (download)="downloadBenchmark()" />
     }
     @if (store.status() === 'loading') {
       <div class="overlay overlay--status" role="status"><div class="status-card">Generating synthetic scene…</div></div>
@@ -91,6 +97,7 @@ const NICE_LENGTHS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500];
       </div>
     }
   `,
+  imports: [DiagnosticsPanel],
   host: { class: 'viewport', 'data-testid': 'viewport' },
 })
 export class Viewport {
@@ -99,6 +106,8 @@ export class Viewport {
   protected readonly gradient = computed(() => scaleGradientCss(this.scale()));
   protected readonly webgl = signal<WebGLState>('pending');
   readonly stats = signal<RenderStats | null>(null);
+  protected readonly showDiagnostics = signal(false);
+  protected readonly bench = signal<BenchmarkState>({ state: 'idle' });
 
   private readonly canvasHost = viewChild.required<ElementRef<HTMLElement>>('canvasHost');
   private readonly axE = viewChild.required<ElementRef<SVGLineElement>>('axE');
@@ -237,6 +246,18 @@ export class Viewport {
       });
     });
 
+    // ?benchmark=auto: run once when the scene and any requested point cloud are ready.
+    let autoBenchPending = autoBenchmarkRequested();
+    effect(() => {
+      if (!autoBenchPending || this.store.status() !== 'ready' || !this.rendererGen()) return;
+      if (this.store.layers().pointCloud && this.store.pointCloudStatus().state !== 'ready') return;
+      autoBenchPending = false;
+      untracked(() => {
+        this.showDiagnostics.set(true);
+        setTimeout(() => void this.runBenchmark(), 500);
+      });
+    });
+
     // A selection that is no longer drawn is cleared, with a notice. Runs after the effects above.
     effect(() => {
       const id = this.store.selectedBlockId();
@@ -280,7 +301,10 @@ export class Viewport {
         { antialias: q.antialias, maxPixelRatio: q.maxPixelRatio, damping: !reducedMotion },
       );
       this.webgl.set('ok');
-      this.removeHook = installDebugHook(this.store, this.renderer);
+      this.removeHook = installDebugHook(this.store, this.renderer, () => {
+        const b = this.bench();
+        return b.state === 'done' ? b.result : null;
+      });
       this.rendererGen.update((g) => g + 1);
     } catch (e) {
       if (e instanceof WebGLUnavailableError) this.webgl.set('unavailable');
@@ -318,6 +342,35 @@ export class Viewport {
     this.removeHook = null;
     this.renderer?.dispose();
     this.renderer = null;
+  }
+
+  protected async runBenchmark(): Promise<void> {
+    if (!this.renderer || this.bench().state === 'running') return;
+    this.store.playing.set(false);
+    this.bench.set({ state: 'running' });
+    try {
+      const result = await this.renderer.runBenchmark();
+      this.bench.set({ state: 'done', result });
+    } catch (e) {
+      this.bench.set({ state: 'idle' });
+      this.store.showNotice(`Benchmark failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  protected downloadBenchmark(): void {
+    const b = this.bench();
+    const md = this.store.metadata();
+    if (b.state !== 'done' || !md) return;
+    const payload = {
+      ...b.result,
+      scene: { presetId: this.store.presetId(), seed: md.seed, generatorVersion: md.generatorVersion, quality: this.store.quality(), pointDensity: this.store.layers().pointCloud ? this.store.pointDensity() : 'off' },
+    };
+    const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `bmx-benchmark-${b.result.startedAt.replace(/[:.]/g, '-')}.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
   }
 
   protected clearFilters(): void {

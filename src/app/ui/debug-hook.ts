@@ -1,10 +1,11 @@
 import { getBlock } from '../domain/blocks';
-import { SceneRenderer } from '../renderer/scene-renderer';
+import { BenchmarkResult, SceneRenderer } from '../renderer/scene-renderer';
 import { ExplorerStore } from '../state/explorer-store';
 
 /**
- * Read-only inspection hook used by Playwright tests (`window.__bmx`).
- * It exposes queries only; tests drive the app through the real UI.
+ * Inspection hook used by Playwright tests (`window.__bmx`).
+ * It exposes queries plus one write helper (`selectForTest`, for blocks that cannot be
+ * clicked because they are occluded); otherwise tests drive the app through the real UI.
  */
 export interface DebugHook {
   /** First visible block found by scanning a coarse grid of screen points. */
@@ -14,7 +15,14 @@ export interface DebugHook {
   block(id: number): ReturnType<typeof getBlock> | null;
   camera(): ReturnType<SceneRenderer['cameraState']>;
   terrainHeight(x: number, y: number): number | null;
-  lifecycle(): { liveRenderers: number; pendingFrames: number };
+  lifecycle(): { liveRenderers: number; pendingFrames: number; geometries: number; textures: number; framesRendered: number };
+  loseContext(): boolean;
+  restoreContext(): void;
+  lastBenchmark(): BenchmarkResult | null;
+  pixelRatio(): number;
+  selectionOutline(): { visible: boolean; center: readonly [number, number, number] };
+  /** Test helper: select by id through the store, as a click would. */
+  selectForTest(id: number): void;
   pointCount(): number;
 }
 
@@ -24,7 +32,7 @@ declare global {
   }
 }
 
-export function installDebugHook(store: ExplorerStore, renderer: SceneRenderer): () => void {
+export function installDebugHook(store: ExplorerStore, renderer: SceneRenderer, lastBenchmark: () => BenchmarkResult | null): () => void {
   const hook: DebugHook = {
     findPickableBlock() {
       const canvas = document.querySelector('[data-testid="viewport"] canvas');
@@ -49,7 +57,13 @@ export function installDebugHook(store: ExplorerStore, renderer: SceneRenderer):
     },
     camera: () => renderer.cameraState(),
     terrainHeight: (x, y) => store.heightFunction()?.(x, y) ?? null,
-    lifecycle: () => ({ liveRenderers: SceneRenderer.liveInstances, pendingFrames: SceneRenderer.pendingFrames }),
+    lifecycle: () => ({ liveRenderers: SceneRenderer.liveInstances, pendingFrames: SceneRenderer.pendingFrames, ...renderer.resourceCounts() }),
+    loseContext: () => renderer.simulateContextLoss(),
+    restoreContext: () => renderer.simulateContextRestore(),
+    lastBenchmark: () => lastBenchmark(),
+    pixelRatio: () => renderer.pixelRatio,
+    selectionOutline: () => renderer.selectionOutline(),
+    selectForTest: (id) => store.select(id),
     pointCount: () => renderer.pointCount,
   };
   window.__bmx = hook;

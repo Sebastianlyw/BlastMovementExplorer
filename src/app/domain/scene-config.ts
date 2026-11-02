@@ -17,6 +17,7 @@ export interface DisplaySettings {
   readonly quality: 'high' | 'medium' | 'low';
   readonly pointDensity: '100k' | '300k' | '1m';
   readonly pointSize: number;
+  readonly pointColorMode: 'height' | 'natural';
 }
 
 export interface SceneConfig {
@@ -144,6 +145,7 @@ export function parseConfig(text: string, presetParams: (id: string) => Generati
     if (!['high', 'medium', 'low'].includes(d['quality'] as string)) errors.push('display.quality must be high, medium or low');
     if (!['100k', '300k', '1m'].includes(d['pointDensity'] as string)) errors.push('display.pointDensity must be 100k, 300k or 1m');
     if (!finite(d['pointSize']) || d['pointSize'] < 1 || d['pointSize'] > 8) errors.push('display.pointSize must be in [1, 8]');
+    if (d['pointColorMode'] !== 'height' && d['pointColorMode'] !== 'natural') errors.push('display.pointColorMode must be "height" or "natural"');
   }
 
   if (errors.length) return { ok: false, errors };

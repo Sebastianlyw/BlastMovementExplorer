@@ -49,12 +49,7 @@ export class PointCloudLayer {
   private readonly material: THREE.ShaderMaterial;
 
   constructor(frame: WorldFrame, positions: Float32Array, zRange: readonly [number, number], pixelRatio: number, style: PointStyle) {
-    const [ox, oy, oz] = frame.origin;
-    for (let i = 0; i < positions.length; i += 3) {
-      positions[i] -= ox;
-      positions[i + 1] -= oy;
-      positions[i + 2] -= oz;
-    }
+    frame.bufferToRenderInPlace(positions);
     this.count = positions.length / 3;
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
@@ -66,8 +61,8 @@ export class PointCloudLayer {
       uniforms: {
         uSize: { value: style.size },
         uPixelRatio: { value: pixelRatio },
-        uZMin: { value: zRange[0] - oz },
-        uZMax: { value: zRange[1] - oz },
+        uZMin: { value: frame.zToRender(zRange[0]) },
+        uZMax: { value: frame.zToRender(zRange[1]) },
         uHeightMode: { value: style.colorMode === 'height' ? 1 : 0 },
         uLow: { value: lin(0.3, 0.36, 0.44) },
         uHigh: { value: lin(0.7, 0.66, 0.58) },

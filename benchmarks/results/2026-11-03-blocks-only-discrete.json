@@ -1,0 +1,39 @@
+{
+  "config": "blocks-only",
+  "query": "?quality=high&benchmark=auto",
+  "chromiumArgs": [
+    "--force_high_performance_gpu"
+  ],
+  "host": {
+    "os": "Windows_NT 10.0.26200",
+    "cpu": "Intel(R) Core(TM) i5-14400",
+    "logicalCores": 16,
+    "ramGb": 64
+  },
+  "measurement": "Browser frame interval from requestAnimationFrame timestamps (not GPU timing; capped by display refresh rate)",
+  "startedAt": "2026-11-02T15:49:04.713Z",
+  "warmupMs": 2000,
+  "sampleMs": 10000,
+  "frames": 524,
+  "medianFrameMs": 19,
+  "p95FrameMs": 21,
+  "maxFrameMs": 23.200000000000728,
+  "fpsFromMedian": 52.63157894736842,
+  "drawCalls": 5,
+  "triangles": 398402,
+  "points": 0,
+  "blockInstances": 28800,
+  "surfacePoints": 0,
+  "pixelRatio": 1,
+  "canvasPx": [
+    672,
+    631
+  ],
+  "viewportCss": [
+    672,
+    631
+  ],
+  "antialias": true,
+  "gpuRenderer": "ANGLE (AMD, AMD Radeon RX 7700 XT (0x0000747E) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36"
+}

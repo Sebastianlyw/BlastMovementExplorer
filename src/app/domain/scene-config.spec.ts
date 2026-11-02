@@ -24,6 +24,7 @@ function validConfig(): SceneConfig {
       quality: 'high',
       pointDensity: '100k',
       pointSize: 2,
+      pointColorMode: 'height',
     },
     note: 'test',
   };

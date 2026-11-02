@@ -18,3 +18,14 @@ export function initialQuality(search: string = globalThis.location?.search ?? '
   const q = new URLSearchParams(search).get('quality');
   return q === 'low' || q === 'medium' || q === 'high' ? q : 'high';
 }
+
+/** Reads `?points=100k|300k|1m` (shows the surface point cloud at that density). */
+export function initialPointDensity(search: string = globalThis.location?.search ?? ''): '100k' | '300k' | '1m' | null {
+  const p = new URLSearchParams(search).get('points');
+  return p === '100k' || p === '300k' || p === '1m' ? p : null;
+}
+
+/** `?benchmark=auto` runs the benchmark once after the scene (and requested points) are ready. */
+export function autoBenchmarkRequested(search: string = globalThis.location?.search ?? ''): boolean {
+  return new URLSearchParams(search).get('benchmark') === 'auto';
+}

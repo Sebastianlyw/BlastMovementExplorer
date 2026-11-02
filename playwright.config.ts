@@ -22,11 +22,26 @@ export default defineConfig({
     trace: 'retain-on-failure',
     launchOptions: { args: ['--enable-unsafe-swiftshader', '--use-angle=swiftshader'] },
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'], channel: 'chromium', viewport: { width: 1280, height: 720 } } }],
-  webServer: {
-    command: 'node scripts/serve-dist.mjs 4310',
-    url: 'http://localhost:4310',
-    reuseExistingServer: true,
-    timeout: 30_000,
-  },
+  projects: [
+    {
+      name: 'chromium',
+      testIgnore: /subpath.spec.ts/,
+      use: { ...devices['Desktop Chrome'], channel: 'chromium', viewport: { width: 1280, height: 720 } },
+    },
+    {
+      // Production build made with `npm run build:pages` (base href /BlastMovementExplorer/).
+      name: 'subpath',
+      testMatch: /subpath.spec.ts/,
+      use: { ...devices['Desktop Chrome'], channel: 'chromium', viewport: { width: 1280, height: 720 }, baseURL: 'http://localhost:4311/BlastMovementExplorer/' },
+    },
+  ],
+  webServer: [
+    { command: 'node scripts/serve-dist.mjs 4310', url: 'http://localhost:4310', reuseExistingServer: true, timeout: 30_000 },
+    {
+      command: 'node scripts/serve-dist.mjs 4311 --prefix=/BlastMovementExplorer/ --root=dist/pages/browser',
+      url: 'http://localhost:4311/BlastMovementExplorer/',
+      reuseExistingServer: true,
+      timeout: 30_000,
+    },
+  ],
 });

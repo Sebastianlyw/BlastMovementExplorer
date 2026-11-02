@@ -135,7 +135,7 @@ export class BlockLayer {
   /** Hide blocks whose CURRENT centre is above zDomain. null disables. */
   setSection(zDomain: number | null): void {
     this.uniforms.uSectionOn.value = zDomain === null ? 0 : 1;
-    this.uniforms.uSectionZ.value = zDomain === null ? 0 : zDomain - this.frame.origin[2];
+    this.uniforms.uSectionZ.value = zDomain === null ? 0 : this.frame.zToRender(zDomain);
   }
 
   /** Whether a block index is currently drawn (mask, section and t). */
@@ -194,7 +194,8 @@ export class BlockLayer {
         bArr[q + c] = this.allBefore[o + c];
         aArr[q + c] = this.allAfter[o + c];
         sArr[q + c] = m.size[o + c];
-        this.halfSize[q + c] = m.size[o + c] / 2;
+        // Pick against the box as drawn (visual scale), so gaps between blocks pick nothing.
+        this.halfSize[q + c] = (m.size[o + c] / 2) * BLOCK_VISUAL_SCALE;
         cArr[q + c] = rgb[o + c];
       }
       this.instanceToBlock[k] = m.ids[i];

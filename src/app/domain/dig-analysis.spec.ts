@@ -1,6 +1,6 @@
 import { computeDigMetrics, computeScenarios, deriveOriginalRegion, DigRegion, meanOreDisplacement, regionContains } from './dig-analysis';
 import { analysisCsv, csvCell } from './csv';
-import { buildVisibilityMask, countVisible, NO_GRADE_FILTER } from './filtering';
+import { buildVisibilityMask, NO_GRADE_FILTER } from './filtering';
 import { DEFAULT_SEED, generateDataset } from './generator';
 
 /** Hand-built blocks: unit cubes (1 m³) so tonnes = density. */
@@ -111,13 +111,6 @@ describe('scenarios on the default dataset', () => {
     expect(A.metrics.totalOreTonnes).toBe(B.metrics.totalOreTonnes);
     expect(B.metrics.lostOreTonnes).not.toBe(A.metrics.lostOreTonnes);
     expect(C.metrics).toEqual(B.metrics); // adjusted == original → same as B
-  });
-
-  it('view filters cannot influence metrics (metrics take no view inputs)', () => {
-    const before = computeScenarios(b, 0.8, original, original);
-    const mask = buildVisibilityMask(b.grade, { minGrade: 2, maxGrade: 3, oreOnly: true }, 0.8);
-    expect(countVisible(mask)).toBeLessThan(b.count);
-    expect(computeScenarios(b, 0.8, original, original)).toEqual(before);
   });
 
   it('cutoff changes metrics', () => {

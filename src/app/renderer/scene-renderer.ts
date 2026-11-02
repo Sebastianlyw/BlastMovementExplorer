@@ -83,6 +83,42 @@ export class WebGLUnavailableError extends Error {
   }
 }
 
+export interface BenchmarkResult {
+  readonly measurement: string;
+  readonly startedAt: string;
+  readonly warmupMs: number;
+  readonly sampleMs: number;
+  readonly frames: number;
+  readonly medianFrameMs: number;
+  readonly p95FrameMs: number;
+  readonly maxFrameMs: number;
+  readonly fpsFromMedian: number;
+  readonly drawCalls: number;
+  readonly triangles: number;
+  readonly points: number;
+  readonly blockInstances: number;
+  readonly surfacePoints: number;
+  readonly pixelRatio: number;
+  readonly canvasPx: readonly [number, number];
+  readonly viewportCss: readonly [number, number];
+  readonly antialias: boolean;
+  readonly gpuRenderer: string;
+  readonly userAgent: string;
+}
+
+interface BenchmarkState {
+  startTime: number;
+  lastTime: number;
+  readonly warmupMs: number;
+  readonly sampleMs: number;
+  readonly radius: number;
+  readonly height: number;
+  readonly intervals: number[];
+  readonly saved: { position: THREE.Vector3; target: THREE.Vector3; t: number };
+  readonly resolve: (r: BenchmarkResult) => void;
+  readonly reject: (e: Error) => void;
+}
+
 /** Duration of a full 0 → 1 playback, ms. */
 const PLAYBACK_MS = 4000;
 
@@ -125,6 +161,8 @@ export class SceneRenderer {
   private movementT = 0;
   private playback: { startTime: number; fromT: number; lastReport: number } | null = null;
 
+  private benchmark: BenchmarkState | null = null;
+  private loseContextExt: WEBGL_lose_context | null = null;
   private pointerDown: { x: number; y: number; time: number } | null = null;
   private lastFrameTime = 0;
   private readonly intervals: number[] = [];
@@ -200,6 +238,7 @@ export class SceneRenderer {
 
   /** Replace the dataset. Previous scene objects are disposed. */
   setScene(input: SceneInput): void {
+    this.abortBenchmark('the scene changed');
     this.stopPlayback(false);
     this.input = input;
     this.frame = WorldFrame.centeredOn(input.blockBounds);
@@ -365,7 +404,7 @@ export class SceneRenderer {
 
     // Keep the camera above the terrain surface.
     const domainPos = this.frame.toDomain([pos.x, pos.y, pos.z]);
-    const ground = this.input.heightAt(domainPos[0], domainPos[1]) - this.frame.origin[2];
+    const ground = this.frame.zToRender(this.input.heightAt(domainPos[0], domainPos[1]));
     if (pos.z < ground + 2) pos.z = ground + 2;
 
     this.controls.target.copy(center);
@@ -411,11 +450,139 @@ export class SceneRenderer {
     return { x: rect.left + ((v.x + 1) / 2) * rect.width, y: rect.top + ((1 - v.y) / 2) * rect.height };
   }
 
+  // ---------------------------------------------------------------- benchmark & diagnostics
+
+  /**
+   * Fixed, repeatable benchmark: orbit the target once per 10 s at the isometric
+   * radius/elevation while looping movement t, rendering every animation frame.
+   * Reports BROWSER FRAME INTERVALS (requestAnimationFrame timestamps), not GPU time.
+   */
+  runBenchmark(warmupMs = 2000, sampleMs = 10000): Promise<BenchmarkResult> {
+    if (this.benchmark) return Promise.reject(new Error('A benchmark is already running.'));
+    if (!this.input) return Promise.reject(new Error('No scene loaded.'));
+    this.stopPlayback(true);
+    const saved = { position: this.camera.position.clone(), target: this.controls.target.clone(), t: this.movementT };
+    this.applyCameraPreset('iso');
+    const offset = this.camera.position.clone().sub(this.controls.target);
+    this.controls.enabled = false;
+    return new Promise((resolve, reject) => {
+      this.benchmark = {
+        startTime: -1,
+        lastTime: -1,
+        warmupMs,
+        sampleMs,
+        radius: Math.hypot(offset.x, offset.y),
+        height: offset.z,
+        intervals: [],
+        saved,
+        resolve,
+        reject,
+      };
+      this.invalidate();
+    });
+  }
+
+  get isBenchmarking(): boolean {
+    return this.benchmark !== null;
+  }
+
+  /** Selection outline state in domain coordinates (for tests and diagnostics). */
+  selectionOutline(): { visible: boolean; center: Vec3 } {
+    const p = this.selectionBox.position;
+    return { visible: this.selectionBox.visible, center: this.frame.toDomain([p.x, p.y, p.z]) };
+  }
+
+  /** Renderer object counts for leak checks (not memory sizes). */
+  resourceCounts(): { geometries: number; textures: number; framesRendered: number } {
+    return { geometries: this.renderer.info.memory.geometries, textures: this.renderer.info.memory.textures, framesRendered: this.framesRendered };
+  }
+
+  get pixelRatio(): number {
+    return this.renderer.getPixelRatio();
+  }
+
+  /** Test/diagnostic hooks using WEBGL_lose_context. */
+  simulateContextLoss(): boolean {
+    this.loseContextExt ??= this.renderer.getContext().getExtension('WEBGL_lose_context');
+    this.loseContextExt?.loseContext();
+    return !!this.loseContextExt;
+  }
+
+  simulateContextRestore(): void {
+    this.loseContextExt?.restoreContext();
+  }
+
+  /** Settle a running benchmark as failed (never leave its promise pending). */
+  private abortBenchmark(reason: string): void {
+    const b = this.benchmark;
+    if (!b) return;
+    this.benchmark = null;
+    this.controls.enabled = true;
+    b.reject(new Error(`Benchmark aborted: ${reason}.`));
+  }
+
+  private advanceBenchmark(now: number): void {
+    const b = this.benchmark!;
+    if (b.startTime < 0) b.startTime = now;
+    const elapsed = now - b.startTime;
+    const angle = -Math.PI / 3 + (2 * Math.PI * elapsed) / 10000;
+    const target = this.controls.target;
+    this.camera.position.set(target.x + b.radius * Math.cos(angle), target.y + b.radius * Math.sin(angle), target.z + b.height);
+    this.camera.lookAt(target);
+    const phase = (elapsed % 4000) / 4000; // triangle wave, 4 s period
+    this.applyT(phase < 0.5 ? phase * 2 : 2 - phase * 2, false);
+  }
+
+  private recordBenchmarkFrame(now: number): void {
+    const b = this.benchmark!;
+    const elapsed = now - b.startTime;
+    if (elapsed > b.warmupMs && b.lastTime >= 0) b.intervals.push(now - b.lastTime);
+    b.lastTime = now;
+    if (elapsed < b.warmupMs + b.sampleMs) return;
+
+    const sorted = [...b.intervals].sort((x, y) => x - y);
+    const q = (p: number) => sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))] ?? NaN;
+    const info = this.renderer.info.render;
+    const gl = this.renderer.getContext();
+    const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+    const result: BenchmarkResult = {
+      measurement: 'Browser frame interval from requestAnimationFrame timestamps (not GPU timing; capped by display refresh rate)',
+      startedAt: new Date().toISOString(),
+      warmupMs: b.warmupMs,
+      sampleMs: b.sampleMs,
+      frames: sorted.length,
+      medianFrameMs: q(0.5),
+      p95FrameMs: q(0.95),
+      maxFrameMs: sorted[sorted.length - 1] ?? NaN,
+      fpsFromMedian: 1000 / q(0.5),
+      drawCalls: info.calls,
+      triangles: info.triangles,
+      points: info.points,
+      blockInstances: this.blocks?.count ?? 0,
+      surfacePoints: this.pointCloud && this.layers.pointCloud ? this.pointCloud.count : 0,
+      pixelRatio: this.renderer.getPixelRatio(),
+      canvasPx: [this.canvas.width, this.canvas.height],
+      viewportCss: [this.container.clientWidth, this.container.clientHeight],
+      antialias: this.options.antialias,
+      gpuRenderer: dbg ? String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL)) : 'not exposed',
+      userAgent: navigator.userAgent,
+    };
+    // Restore the user's view.
+    this.camera.position.copy(b.saved.position);
+    this.controls.target.copy(b.saved.target);
+    this.controls.enabled = true;
+    this.controls.update();
+    this.applyT(b.saved.t, false);
+    this.benchmark = null;
+    b.resolve(result);
+  }
+
   // ---------------------------------------------------------------- lifecycle
 
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.abortBenchmark('the renderer was replaced or closed');
     this.playback = null;
     if (this.frameHandle) {
       cancelAnimationFrame(this.frameHandle);
@@ -461,8 +628,9 @@ export class SceneRenderer {
     this.frameHandle = 0;
     SceneRenderer.pendingFrames--;
     if (this.disposed) return;
-    const dampingActive = this.controls.update();
-    this.advancePlayback(now);
+    const dampingActive = this.benchmark ? false : this.controls.update();
+    if (this.benchmark) this.advanceBenchmark(now);
+    else this.advancePlayback(now);
     this.renderer.render(this.scene, this.camera);
     this.framesRendered++;
     if (this.lastFrameTime > 0 && now - this.lastFrameTime < 250) {
@@ -471,7 +639,8 @@ export class SceneRenderer {
     }
     this.lastFrameTime = now;
     this.emitView();
-    if (dampingActive || this.playback) this.invalidate();
+    if (this.benchmark) this.recordBenchmarkFrame(now);
+    if (dampingActive || this.playback || this.benchmark) this.invalidate();
   };
 
   private advancePlayback(now: number): void {

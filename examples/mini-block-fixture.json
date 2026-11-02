@@ -1,0 +1,34 @@
+{
+  "description": "Four 2 m blocks with hand-computed demo metrics. Independent of the generator: expected values were calculated by hand (see docs/data-model.md).",
+  "units": { "length": "m", "density": "t/m3", "grade": "g/t", "mass": "t" },
+  "cutoff": 0.8,
+  "region": { "centerE": 3, "centerN": 1, "width": 6, "length": 2 },
+  "blocks": [
+    { "id": 1, "before": [1, 1, 1], "after": [1, -1, 1], "size": [2, 2, 2], "density": 2.5, "grade": 1.2 },
+    { "id": 2, "before": [3, 1, 1], "after": [3, 1, 1], "size": [2, 2, 2], "density": 2.5, "grade": 0.4 },
+    { "id": 3, "before": [5, 1, 1], "after": [4, 1, 1], "size": [2, 2, 2], "density": 3.0, "grade": 2.0 },
+    { "id": 4, "before": [7, 1, 1], "after": [7, 1, 1], "size": [2, 2, 2], "density": 2.5, "grade": 0.8 }
+  ],
+  "expected": {
+    "before": {
+      "totalOreTonnes": 64,
+      "recoveredOreTonnes": 44,
+      "lostOreTonnes": 20,
+      "extractedWasteTonnes": 20,
+      "extractedTotalTonnes": 64,
+      "oreLossPercent": 31.25,
+      "dilutionPercent": 31.25,
+      "averageExtractedGrade": 1.25
+    },
+    "after": {
+      "totalOreTonnes": 64,
+      "recoveredOreTonnes": 24,
+      "lostOreTonnes": 40,
+      "extractedWasteTonnes": 20,
+      "extractedTotalTonnes": 44,
+      "oreLossPercent": 62.5,
+      "dilutionPercent": 45.45454545454545,
+      "averageExtractedGrade": 1.2727272727272727
+    }
+  }
+}

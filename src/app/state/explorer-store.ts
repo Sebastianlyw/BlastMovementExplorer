@@ -7,7 +7,7 @@ import { generateDataset, terrainHeightFor } from '../domain/generator';
 import { MovementParams } from '../domain/movement';
 import { CONFIG_FORMAT, CONFIG_SCHEMA_VERSION, DisplaySettings, parseConfig, SceneConfig, serializeConfig } from '../domain/scene-config';
 import { Block, Dataset, GENERATOR_VERSION, GenerationParams } from '../domain/types';
-import { initialQuality, Quality } from './quality';
+import { initialPointDensity, initialQuality, Quality } from './quality';
 import { DEFAULT_PRESET_ID, findPreset } from './scene-presets';
 
 export type LoadStatus = 'loading' | 'ready' | 'error';
@@ -57,11 +57,11 @@ export class ExplorerStore {
   readonly movementT = signal(0);
   readonly playing = signal(false);
   readonly colorMode = signal<ColorMode>('grade');
-  readonly layers = signal<LayerState>(DEFAULT_LAYERS);
+  readonly layers = signal<LayerState>({ ...DEFAULT_LAYERS, pointCloud: initialPointDensity() !== null });
   readonly quality = signal<Quality>(initialQuality());
   readonly gradeFilter = signal<GradeFilter>(NO_GRADE_FILTER);
   readonly section = signal<SectionState>(DEFAULT_SECTION);
-  readonly pointDensity = signal<PointDensity>('100k');
+  readonly pointDensity = signal<PointDensity>(initialPointDensity() ?? '100k');
   readonly pointSize = signal(2);
   readonly pointColorMode = signal<'height' | 'natural'>('height');
   /** Status of the surface point cloud (summary only; positions never enter signals). */
@@ -249,6 +249,7 @@ export class ExplorerStore {
     this.quality.set(d.quality);
     this.pointDensity.set(d.pointDensity);
     this.pointSize.set(d.pointSize);
+    this.pointColorMode.set(d.pointColorMode);
     this.commitDataset(c.scene.presetId, dataset, performance.now() - t0);
     this.adjustedRegion.set({ ...c.regions.adjusted });
     this.movementT.set(d.movementT);
@@ -267,6 +268,7 @@ export class ExplorerStore {
       quality: this.quality(),
       pointDensity: this.pointDensity(),
       pointSize: this.pointSize(),
+      pointColorMode: this.pointColorMode(),
     };
   }
 
