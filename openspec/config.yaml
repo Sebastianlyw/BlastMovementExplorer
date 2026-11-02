@@ -1,0 +1,35 @@
+schema: spec-driven
+
+context: |
+  Language: English
+  All artifacts must be written in English.
+  Keep OpenSpec structural headings and SHALL/MUST keywords in English.
+
+  Project: Blast Movement Explorer — a static, portfolio-grade 3D web app that
+  visualises a SYNTHETIC block model before and after an ILLUSTRATIVE,
+  procedurally generated movement field, and compares dig-region metrics.
+  It is not a blast physics model and must never claim predictive capability.
+  The UI permanently shows "Synthetic data · Illustrative movement".
+
+  Stack (pinned): Node 24.21, Angular 22.2 (standalone, zoneless, signals),
+  TypeScript 6.0 strict, Three.js 0.186.1, Vitest 5 via @angular/build:unit-test,
+  Playwright 1.64. Static deployable build; no backend, auth or database.
+
+  Layers: src/app/domain (pure TS: generation, movement, filtering, metrics;
+  no Angular/Three imports) -> src/app/renderer (Three.js, owns GPU resources)
+  -> src/app/ui + state (Angular components, signal store with params/ids/summaries only).
+
+  Coordinates: domain uses local mine coordinates X=East, Y=North, Z=Up, metres,
+  right-handed. The renderer is the single place converting to Three.js (Y-up).
+  No EPSG; label as "Local coordinates".
+
+  Data kinds: (A) block model = authoritative for tonnes/grade/metrics;
+  (B) surface point cloud = visual only; (C) material samples = optional visual only.
+  Tonnes = block volume x density (never from visual scale). Grades in g/t.
+  Ore/waste derives from the current cutoff (demo default 0.8 g/t).
+
+rules:
+  specs:
+    - Every requirement has at least one Given/When/Then style scenario (use WHEN/THEN bullets, include GIVEN when state matters).
+  tasks:
+    - Each task must be verifiable; mark done only after the verification ran. Record "Not run" with a reason otherwise.
